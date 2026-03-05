@@ -1,0 +1,74 @@
+name: Check Availability
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run without sending alerts or writing state'
+        type: boolean
+        default: false
+
+jobs:
+  fetch-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install
+      - run: node src/config.mjs
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matrix
+          path: matrix.json
+
+  load-config:
+    needs: fetch-config
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.config.outputs.matrix }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: matrix
+      - id: config
+        run: echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: load-config
+    if: needs.load-config.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        watchdog: ${{ fromJson(needs.load-config.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install
+      - run: npx playwright install chromium --with-deps
+      - name: Lint
+        run: pnpm lint.check
+      - name: Run unit tests
+        run: pnpm test
+      - name: Check availability
+        run: node src/check.mjs
+        env:
+          WATCHDOG_CONFIG: ${{ toJson(matrix.watchdog) }}
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}

@@ -1,0 +1,18 @@
+# Ignored files
+# @see https://git-scm.com/docs/gitignore
+
+# ai
+.claude/*.local.json
+
+# dependencies
+node_modules
+
+# environment variables
+.env
+
+# logs
+*-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

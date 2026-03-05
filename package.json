@@ -1,0 +1,29 @@
+{
+	"name": "bookdog",
+	"description": "Booking.com availability watchdog — scrapes properties, alerts via Slack",
+	"version": "0.0.0",
+	"packageManager": "pnpm@10.29.3",
+	"scripts": {
+		"check": "node src/check.mjs",
+		"check.dry": "node --env-file=.env src/check.mjs",
+		"lint.check": "biome check",
+		"lint.write": "biome check --write",
+		"test": "node --test test/*.test.mjs",
+		"test.alert": "node --env-file=.env test/send-test-alert.mjs"
+	},
+	"dependencies": {
+		"googleapis": "171.4.0",
+		"playwright": "1.58.2"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.15"
+	},
+	"engines": {
+		"node": "20.20.0",
+		"pnpm": "10.29.3"
+	},
+	"volta": {
+		"node": "20.20.0",
+		"pnpm": "10.29.3"
+	}
+}
