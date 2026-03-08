@@ -1,7 +1,7 @@
 /**
  * Dev utility: capture a Booking.com page as an HTML fixture.
- * Usage: node test/save-snapshot.mjs <url> [output-name]
- * Example: node test/save-snapshot.mjs "https://www.booking.com/hotel/it/grand-hotel-roma.html?checkin=2026-07-01&checkout=2026-07-02" available
+ * Usage: node tests/save-snapshot.mjs <url> [output-name]
+ * Example: node tests/save-snapshot.mjs "https://www.booking.com/hotel/it/grand-hotel-roma.html?checkin=2026-07-01&checkout=2026-07-02" available
  */
 
 import { writeFileSync } from 'node:fs'
@@ -15,7 +15,7 @@ const url = process.argv[2]
 const name = process.argv[3] || 'snapshot'
 
 if (!url) {
-	console.error('Usage: node test/save-snapshot.mjs <url> [output-name]')
+	console.error('Usage: node tests/save-snapshot.mjs <url> [output-name]')
 	process.exit(1)
 }
 

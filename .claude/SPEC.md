@@ -35,7 +35,7 @@ bookdog/
 │   ├── scraper.mjs         # Playwright scraping (per-date probing)
 │   ├── slack.mjs           # Slack notification helper
 │   └── check.mjs           # Main entrypoint (orchestrates one watchdog run)
-├── test/
+├── tests/
 │   ├── fixtures/            # Synthetic HTML test fixtures
 │   ├── logic.test.mjs       # Pure logic tests (runs, dedup)
 │   ├── save-snapshot.mjs    # Dev utility to capture new fixtures
@@ -208,7 +208,7 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 - [x] `node_modules/`
 - [x] `.env`
 - [x] Credentials stored in env vars (no JSON key files to ignore)
-- [x] `test/fixtures/` are **tracked** in git (they're small, and the tests need them in CI)
+- [x] `tests/fixtures/` are **tracked** in git (they're small, and the tests need them in CI)
 
 ### 11. Google Form + Apps Script auto-ID setup
 
@@ -288,7 +288,7 @@ Split into three files:
 - [x] Troubleshooting table
 - [x] Free tier budget math
 
-#### `test/README.md` — test overview
+#### `tests/README.md` — test overview
 - [x] Stack (Node test runner, Playwright)
 - [x] Commands, structure tree, fixture notes
 
@@ -324,25 +324,25 @@ A permanent `--dry-run` flag that scrapes real Booking.com but skips Slack alert
 
 Test the scraper's DOM parsing against saved Booking.com pages without hitting the real site.
 
-- [x] Create `test/` directory
-- [x] Create `test/fixtures/` directory with saved HTML snapshots:
+- [x] Create `tests/` directory
+- [x] Create `tests/fixtures/` directory with saved HTML snapshots:
   - `available.html` — property page with `.hprt-table` showing available rooms (price cells)
   - `sold-out.html` — property page with no `.hprt-table` rows (fully sold out)
   - `partial-availability.html` — multi-room property where some rooms are available and some show "Not available"
   - `all-rooms-unavailable.html` — property with `.hprt-table` rows but all price cells say "Not available"
-- [x] How to capture snapshots: add a utility script `test/save-snapshot.mjs` that:
+- [x] How to capture snapshots: add a utility script `tests/save-snapshot.mjs` that:
   - Takes a Booking.com URL + checkin/checkout params
   - Opens the page with Playwright
-  - Saves `page.content()` to a file in `test/fixtures/`
+  - Saves `page.content()` to a file in `tests/fixtures/`
   - This is a manual dev tool, not part of CI
-- [x] Create `test/scraper.test.mjs` — test the scraper against local fixtures:
-  - Spin up a simple local HTTP server (use Node's built-in `http` module) serving files from `test/fixtures/`
+- [x] Create `tests/scraper.test.mjs` — test the scraper against local fixtures:
+  - Spin up a simple local HTTP server (use Node's built-in `http` module) serving files from `tests/fixtures/`
   - Point the scraper at `http://localhost:PORT/available.html` etc. instead of real Booking.com
   - Assert: available page → `available: true`
   - Assert: sold-out page → `available: false`
   - Assert: partial-availability page → `available: true` (at least one room available)
   - Assert: all-rooms-unavailable page → `available: false` (all rows say "Not available")
-- [x] Create `test/logic.test.mjs` — test pure logic functions (no browser needed):
+- [x] Create `tests/logic.test.mjs` — test pure logic functions (no browser needed):
   - `findConsecutiveRuns()`: test with various availability arrays
     - All available → one big run
     - All blocked → no runs
@@ -351,7 +351,7 @@ Test the scraper's DOM parsing against saved Booking.com pages without hitting t
   - Deduplication: new runs vs already-alerted runs
   - ID generation logic (if extracted to a shared util)
 - [x] Test runner: use Node's built-in test runner (`node --test`) — no extra dependencies
-- [x] Add to `package.json` scripts: `"test": "node --test test/*.test.mjs"`
+- [x] Add to `package.json` scripts: `"test": "node --test tests/*.test.mjs"`
 - [x] Add a test step to the GitHub Actions workflow (runs before the actual check, fails fast):
   ```yaml
   - name: Run unit tests
@@ -385,7 +385,7 @@ bookdog/
 │   ├── scraper.mjs
 │   ├── slack.mjs
 │   └── check.mjs
-├── test/
+├── tests/
 │   ├── fixtures/
 │   │   ├── available.html
 │   │   ├── sold-out.html

@@ -1,6 +1,6 @@
 /**
  * Dev utility: send a fake Slack alert to test message formatting.
- * Usage: SLACK_WEBHOOK_URL=https://hooks.slack.com/... node test/send-test-alert.mjs
+ * Usage: SLACK_WEBHOOK_URL=https://hooks.slack.com/... node tests/send-test-alert.mjs
  */
 import { sendAlert, sendError } from '../src/slack.mjs'
 

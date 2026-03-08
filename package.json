@@ -9,8 +9,8 @@
 		"check.dry": "node --env-file=.env src/check.mjs",
 		"lint.check": "biome check",
 		"lint.write": "biome check --write",
-		"test": "node --test test/*.test.mjs",
-		"test.alert": "node --env-file=.env test/send-test-alert.mjs"
+		"test": "node --test tests/*.test.mjs",
+		"test.alert": "node --env-file=.env tests/send-test-alert.mjs"
 	},
 	"dependencies": {
 		"googleapis": "171.4.0",

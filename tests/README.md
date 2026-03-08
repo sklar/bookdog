@@ -15,7 +15,7 @@
 ## 🗂️ Structure
 
 ```
-test/
+tests/
 ├── logic.test.mjs        # consecutive-run + dedup logic
 ├── scraper.test.mjs      # Playwright against local fixtures
 ├── send-test-alert.mjs   # dev util: send fake Slack alert
@@ -32,7 +32,7 @@ test/
 HTML snapshots of Booking.com property pages served by a local HTTP server during tests. Capture new fixtures with:
 
 ```bash
-node test/save-snapshot.mjs <booking-url> <output-name>
+node tests/save-snapshot.mjs <booking-url> <output-name>
 ```
 
 ## 📝 Notes

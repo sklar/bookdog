@@ -3,5 +3,5 @@
 		"module": "nodenext",
 		"moduleResolution": "nodenext"
 	},
-	"include": ["src/**/*.mjs", "test/**/*.mjs"]
+	"include": ["src/**/*.mjs", "tests/**/*.mjs"]
 }
