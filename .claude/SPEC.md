@@ -9,10 +9,11 @@ A GitHub Actions project that runs daily, reads watchdog configs from a Google S
 flowchart TD
     A[Google Form] -->|auto-appends rows| B[Google Sheet]
     B -->|config tab| C[GitHub Actions — daily cron]
-    C -->|Job 1: load config| D[JSON matrix]
-    D -->|Job 2: parallel jobs| E[Playwright scrapes]
-    E -->|consecutive nights found| F[Slack webhook alert]
-    E -->|state dedup| B
+    C -->|Job 1: fetch-config| D[matrix.json artifact]
+    D -->|Job 2: load-config| E[JSON matrix output]
+    E -->|Job 3: parallel check jobs| F[Playwright scrapes]
+    F -->|consecutive nights found| G[Slack webhook alert]
+    F -->|state dedup| B
 ```
 
 ## Stack
@@ -95,14 +96,14 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
   - Writes a JSON array to `matrix.json`
 - [x] Upload `matrix.json` as artifact (avoids GitHub Actions secret-masking on job outputs — the runner masks any output from a job that touched secrets)
 
-#### Job 1.5: `load-config`
+#### Job 2: `load-config`
 - [x] Downloads the `matrix` artifact (no secrets in this job → output won't be masked)
 - [x] Output: `matrix` — a JSON string like `[{"id":"rome-july","property_url":"...","checkin_date":"...", ...}, ...]`
 
-#### Job 2: `check`
+#### Job 3: `check`
 - [x] `needs: load-config`
 - [x] `runs-on: ubuntu-latest`
-- [x] `timeout-minutes: 10`
+- [x] `timeout-minutes: 15`
 - [x] `strategy.matrix.watchdog: ${{ fromJson(needs.load-config.outputs.matrix) }}`
 - [x] `strategy.fail-fast: false` (one failure shouldn't cancel the others)
 - [x] Steps: checkout → Node 20 → `pnpm install` → `npx playwright install chromium --with-deps` → run `node src/check.mjs`
@@ -115,7 +116,7 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 
 ### 2. Google Sheets access (`src/config.mjs` and `src/state.mjs`)
 
-#### `src/config.mjs` (used by Job 1)
+#### `src/config.mjs` (used by `fetch-config` job)
 - [x] Authenticate with Google Sheets API using the service account JSON key (from env `GOOGLE_SERVICE_ACCOUNT_KEY`)
 - [x] Use `googleapis` npm package (official Google API client)
 - [x] Read all rows from the `config` tab of the sheet (env `GOOGLE_SHEET_ID`)
@@ -134,15 +135,18 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 
 ### 3. Scraper (`src/scraper.mjs`)
 
-#### Per-date probing with per-row availability detection
-- [x] For each date in the range, load the property URL with query params: `?checkin=YYYY-MM-DD&checkout=DATE+minNights&group_adults=N&group_children=N&no_rooms=1` (checkout offset = `minNights` to handle properties with minimum stay requirements)
+#### Per-date probing with concurrent browser pages
+- [x] Opens 5 concurrent browser pages (same context) to check dates in parallel
+- [x] Worker pool pattern: shared date queue, each worker pops dates and checks them
+- [x] For each date, load the property URL with query params: `?checkin=YYYY-MM-DD&checkout=DATE+minNights&group_adults=N&group_children=N&no_rooms=1`
 - [x] Wait for `domcontentloaded`, then `waitForSelector('.hprt-table', { timeout: 5000 })` for JS hydration
 - [x] Check room table rows (`.hprt-table tr`) for per-room availability:
   - For each row, read `.hprt-table-cell-price` text
   - If at least one row's price cell does NOT contain "not available" / "prices are not available" → date is available
   - If all rows contain unavailability text → date is sold out
 - [x] No `.hprt-table` rows → treat as sold out
-- [x] Add polite random delay between requests (1.5–3.5 sec)
+- [x] Each worker adds polite random delay between its own requests (1.5–3.5 sec)
+- [x] Results sorted by date after all workers complete
 - [x] Collect `{date: "YYYY-MM-DD", available: boolean}` array
 
 #### Exported interface
@@ -412,9 +416,9 @@ bookdog/
 ## Free tier budget estimate
 
 - 1 run/day × 30 days = 30 workflow runs
-- Each run: 1 `load-config` job (~1 min) + up to 20 matrix jobs (~2-3 min each, parallel)
-- Matrix jobs count individually: 30 runs × (1 + 20×3) = ~1,830 min worst case
-- **With ≤15 watchdogs, full parallel matrix is safe:** 30 × (1 + 15×3) = ~1,380 min ✅
+- Each run: `fetch-config` (~1 min) + `load-config` (~1 min) + up to 20 matrix jobs (~2-3 min each, parallel)
+- Matrix jobs count individually: 30 runs × (2 + 20×3) = ~1,860 min worst case
+- **With ≤15 watchdogs, full parallel matrix is safe:** 30 × (2 + 15×3) = ~1,410 min ✅
 - **With 20+ active watchdogs**, consider batching: run 5 per matrix job instead of 1
 
 > **Recommendation:** If you regularly use 20+ watchdogs, batch them (e.g. 4-5 per matrix job) instead of 1:1 matrix. The script structure supports this — just pass an array of configs to each job.

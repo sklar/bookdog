@@ -1,8 +1,10 @@
 /**
  * Playwright scraper for Booking.com availability.
- * Per-date probing: loads each date individually, checks room table for availability.
+ * Per-date probing with concurrent browser pages.
  */
 import { chromium } from 'playwright'
+
+const CONCURRENCY = 5
 
 function dateRange(start, end) {
 	const dates = []
@@ -104,34 +106,53 @@ export async function scrapeAvailability(
 			viewport: { width: 1280, height: 900 },
 			locale: 'en-US',
 		})
-		const page = await context.newPage()
+
 		const allDates = dateRange(checkinDate, checkoutDate)
+		const queue = [...allDates]
 		const results = []
+		let completed = 0
 
-		console.log(`Scraping ${allDates.length} dates...`)
+		console.log(
+			`Scraping ${allDates.length} dates (${CONCURRENCY} concurrent)...`,
+		)
 
-		for (const date of allDates) {
-			try {
-				const available = await checkDate(
-					page,
-					propertyUrl,
-					date,
-					adults,
-					children,
-					minNights,
-				)
-				results.push({ date, available })
-				console.log(
-					`  [${results.length}/${allDates.length}] ${date} — ${available ? 'available' : 'sold out'}`,
-				)
-			} catch (err) {
-				console.warn(`Failed to check ${date}: ${err.message}`)
-				results.push({ date, available: false })
-				console.log(`  [${results.length}/${allDates.length}] ${date} — error`)
+		const pageCount = Math.min(CONCURRENCY, allDates.length)
+		const pages = await Promise.all(
+			Array.from({ length: pageCount }, () => context.newPage()),
+		)
+
+		const worker = async (page) => {
+			while (queue.length > 0) {
+				const date = queue.shift()
+				try {
+					const available = await checkDate(
+						page,
+						propertyUrl,
+						date,
+						adults,
+						children,
+						minNights,
+					)
+					results.push({ date, available })
+					completed++
+					console.log(
+						`  [${completed}/${allDates.length}] ${date} — ${available ? 'available' : 'sold out'}`,
+					)
+				} catch (err) {
+					console.warn(`Failed to check ${date}: ${err.message}`)
+					results.push({ date, available: false })
+					completed++
+					console.log(`  [${completed}/${allDates.length}] ${date} — error`)
+				}
+
+				if (queue.length > 0) await randomDelay()
 			}
-
-			await randomDelay()
 		}
+
+		await Promise.all(pages.map((p) => worker(p)))
+
+		// Sort results by date (workers finish in arbitrary order)
+		results.sort((a, b) => a.date.localeCompare(b.date))
 
 		console.log(`Scraping completed: ${results.length} dates`)
 		return results
