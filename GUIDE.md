@@ -26,7 +26,7 @@ Fill out the Google Form. The ID and enabled flag are auto-generated.
 Open the Google Sheet directly. Set `enabled` to `FALSE` to pause, or delete the row.
 
 ### Cron schedule
-Default: 8:00 UTC. Edit in `.github/workflows/check-availability.yml`.
+Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/check-availability.yml`.
 
 ## 🎯 Troubleshooting
 
@@ -37,6 +37,7 @@ Default: 8:00 UTC. Edit in `.github/workflows/check-availability.yml`.
 | All dates show unavailable | Check property URL is correct. Update selectors if Booking.com changed DOM |
 | Config loading fails | Verify `GOOGLE_SERVICE_ACCOUNT_KEY` and sheet sharing |
 | Duplicate alerts | State tab may be corrupted. Check `state` tab in Google Sheet |
+| Can't see run logs | Successful runs are auto-deleted for privacy. Failed runs are preserved for debugging |
 
 ## 💰 Free tier budget
 
