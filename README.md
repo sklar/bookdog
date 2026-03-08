@@ -2,8 +2,8 @@
 
 Booking.com availability watchdog — scrapes properties daily via GitHub Actions, detects consecutive available nights, alerts via Slack.
 
-See [GUIDE.md](GUIDE.md) for setup, troubleshooting, and usage.
-See [.claude/SPEC.md](.claude/SPEC.md) for full specification.
+- [Setup, usage and troubleshooting guide](GUIDE.md)
+- [Full specification](.claude/SPEC.md)
 
 ## 🧰 Stack
 
@@ -45,4 +45,8 @@ See [.claude/SPEC.md](.claude/SPEC.md) for full specification.
 
 ## ✋ Disclaimer
 
-This tool scrapes Booking.com respectfully with polite delays. Use responsibly and in accordance with Booking.com's terms of service.
+This is a personal hobby project, not affiliated with or endorsed by Booking.com. It scrapes publicly available property pages with polite delays between requests. Automated access may violate [Booking.com's terms of service](https://www.booking.com/content/terms.html) — use at your own risk. The author assumes no liability.
+
+## 📄 License
+
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal and non-commercial use.

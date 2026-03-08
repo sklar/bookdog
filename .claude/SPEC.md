@@ -48,6 +48,7 @@ bookdog/
 ├── package.json
 ├── pnpm-lock.yaml
 ├── GUIDE.md
+├── LICENSE
 └── README.md
 ```
 
@@ -401,6 +402,7 @@ bookdog/
 ├── package.json
 ├── pnpm-lock.yaml
 ├── GUIDE.md
+├── LICENSE
 └── README.md
 ```
 
