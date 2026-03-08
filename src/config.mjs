@@ -27,7 +27,7 @@ export async function loadConfig(sheetId, auth) {
 	const sheets = google.sheets({ version: 'v4', auth })
 	const res = await sheets.spreadsheets.values.get({
 		spreadsheetId: sheetId,
-		range: 'config!A:I',
+		range: 'config!A:J',
 	})
 
 	const rows = res.data.values || []
@@ -36,18 +36,19 @@ export async function loadConfig(sheetId, auth) {
 	const configs = []
 	for (let i = 1; i < rows.length; i++) {
 		const row = rows[i]
-		// Columns: A=Timestamp, B=property_url, C=checkin, D=checkout, E=adults, F=children, G=min_nights, H=id, I=enabled
-		const propertyUrl = (row[1] || '').trim()
-		const checkinDate = normalizeDate(row[2])
-		const checkoutDate = normalizeDate(row[3])
-		const adults = parseInt(row[4], 10) || 2
-		const children = parseInt(row[5], 10) || 0
-		const minNights = parseInt(row[6], 10) || 3
-		const id = (row[7] || '').trim()
+		// Columns: A=Timestamp, B=name, C=property_url, D=checkin, E=checkout, F=adults, G=children, H=min_nights, I=id, J=enabled
+		const name = (row[1] || '').trim()
+		const propertyUrl = (row[2] || '').trim()
+		const checkinDate = normalizeDate(row[3])
+		const checkoutDate = normalizeDate(row[4])
+		const adults = parseInt(row[5], 10) || 2
+		const children = parseInt(row[6], 10) || 0
+		const minNights = parseInt(row[7], 10) || 3
+		const id = (row[8] || '').trim()
 		const enabled =
-			row[8] === undefined ||
-			row[8] === '' ||
-			row[8].toString().toUpperCase() === 'TRUE'
+			row[9] === undefined ||
+			row[9] === '' ||
+			row[9].toString().toUpperCase() === 'TRUE'
 
 		if (!enabled) continue
 
@@ -62,6 +63,7 @@ export async function loadConfig(sheetId, auth) {
 
 		configs.push({
 			id,
+			name,
 			property_url: propertyUrl,
 			checkin_date: checkinDate,
 			checkout_date: checkoutDate,

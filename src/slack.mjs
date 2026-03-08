@@ -18,37 +18,44 @@ function nextDay(dateStr) {
 	return d.toISOString().slice(0, 10)
 }
 
+function humanizeName(propertyUrl) {
+	const slug = propertyUrl.split('/').pop()?.replace('.html', '') || 'unknown'
+	return slug
+		.split('-')
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+		.join(' ')
+}
+
 export async function sendAlert(
 	webhookUrl,
 	watchdogId,
+	name,
 	propertyUrl,
 	runs,
 	adults,
 	children,
 ) {
-	const bestRun = runs.reduce((a, b) => (b.nights > a.nights ? b : a))
-	const bookingUrl = buildBookingUrl(
-		propertyUrl,
-		bestRun.start,
-		nextDay(bestRun.end),
-		adults,
-		children,
-	)
-	const hotelName =
-		propertyUrl.split('/').pop()?.replace('.html', '') || 'unknown'
+	const displayName = name || humanizeName(propertyUrl)
 
 	const runLines = runs
-		.map((r) => `• ${r.start} → ${r.end} _(${r.nights} nights)_`)
+		.map((r) => {
+			const url = buildBookingUrl(
+				propertyUrl,
+				r.start,
+				nextDay(r.end),
+				adults,
+				children,
+			)
+			return `• <${url}|${r.start} → ${r.end}> ${r.nights} nights`
+		})
 		.join('\n')
 
 	const text = [
-		`👋 *${watchdogId}*`,
-		`Property: <${propertyUrl}|${hotelName}>`,
+		`*${displayName}*`,
+		watchdogId,
 		'',
 		'Found availability:',
 		runLines,
-		'',
-		`<${bookingUrl}|Book the best window (${bestRun.nights} nights)>`,
 	].join('\n')
 
 	if (!webhookUrl) {
@@ -67,10 +74,11 @@ export async function sendAlert(
 	}
 }
 
-export async function sendError(webhookUrl, watchdogId, errorMessage) {
+export async function sendError(webhookUrl, watchdogId, name, errorMessage) {
+	const displayName = name || watchdogId
 	const text = [
-		`🚧 *${watchdogId}*`,
-		`Check out the actions log!`,
+		`🚧 *${displayName}*`,
+		watchdogId,
 		`\`\`\`${errorMessage}\`\`\``,
 	].join('\n')
 

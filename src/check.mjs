@@ -74,6 +74,7 @@ if (isMain) {
 
 	const {
 		id,
+		name,
 		property_url,
 		checkin_date,
 		checkout_date,
@@ -144,7 +145,15 @@ if (isMain) {
 				console.log(`  ✅ ${r.start} → ${r.end} (${r.nights} nights)`)
 			}
 		} else {
-			await sendAlert(webhookUrl, id, property_url, newRuns, adults, children)
+			await sendAlert(
+				webhookUrl,
+				id,
+				name,
+				property_url,
+				newRuns,
+				adults,
+				children,
+			)
 			console.log('   Slack alert sent!')
 		}
 
@@ -158,7 +167,7 @@ if (isMain) {
 	} catch (err) {
 		console.error(`Error: ${err.message}`)
 		if (!isDryRun) {
-			await sendError(webhookUrl, id, err.message).catch(() => {})
+			await sendError(webhookUrl, id, name, err.message).catch(() => {})
 		}
 		process.exit(1)
 	}

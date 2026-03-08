@@ -62,16 +62,17 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 | Column | Header | Example | Source | Notes |
 |--------|--------|---------|--------|-------|
 | A | `Timestamp` | `3/5/2026 14:30:00` | Google Forms (auto) | Auto-inserted by Forms |
-| B | `property_url` | `https://www.booking.com/hotel/it/grand-hotel-roma.html` | Form (short answer) | Full Booking.com URL. Form validates URL contains `booking.com/hotel/` |
-| C | `checkin_date` | `2026-07-01` | Form (date picker) | Start of watch window |
-| D | `checkout_date` | `2026-07-31` | Form (date picker) | End of watch window |
-| E | `adults` | `2` | Form (dropdown: 1-6) | Number of adult guests |
-| F | `children` | `0` | Form (dropdown: 0-4) | Number of children, default 0 |
-| G | `min_nights` | `4` | Form (dropdown: 2-14) | Minimum consecutive nights to trigger alert |
-| H | `id` | `grand-hotel-roma-20260701-20260731-4N2A0C` | Apps Script (auto) | Auto-generated on form submit (see section 11). Format: `{slug}-{checkin}-{checkout}-{minN}N{adults}A{children}C` |
-| I | `enabled` | `TRUE` | Manual in Sheet | Not in the form. Defaults to TRUE. Set to FALSE to pause. |
+| B | `name` | `Grand Hotel Roma 🏛️` | Form (short answer) | Display name for Slack alerts (supports unicode/emojis) |
+| C | `property_url` | `https://www.booking.com/hotel/it/grand-hotel-roma.html` | Form (short answer) | Full Booking.com URL. Form validates URL contains `booking.com/hotel/` |
+| D | `checkin_date` | `2026-07-01` | Form (date picker) | Start of watch window |
+| E | `checkout_date` | `2026-07-31` | Form (date picker) | End of watch window |
+| F | `adults` | `2` | Form (dropdown: 1-6) | Number of adult guests |
+| G | `children` | `0` | Form (dropdown: 0-4) | Number of children, default 0 |
+| H | `min_nights` | `4` | Form (dropdown: 2-14) | Minimum consecutive nights to trigger alert |
+| I | `id` | `grand-hotel-roma-20260701-20260731-4N2A0C` | Apps Script (auto) | Auto-generated on form submit (see section 11). Format: `{slug}-{checkin}-{checkout}-{minN}N{adults}A{children}C` |
+| J | `enabled` | `TRUE` | Manual in Sheet | Not in the form. Defaults to TRUE. Set to FALSE to pause. |
 
-> **Note:** Columns A (Timestamp) and H (id) are auto-populated — A by Google Forms, H by the Apps Script trigger. Column I (enabled) is manually managed. The `config.mjs` parser must treat missing `enabled` as TRUE and missing `id` as an error (log warning, skip row).
+> **Note:** Columns A (Timestamp) and I (id) are auto-populated — A by Google Forms, I by the Apps Script trigger. Column J (enabled) is manually managed. The `config.mjs` parser must treat missing `enabled` as TRUE and missing `id` as an error (log warning, skip row).
 
 ### Tab 2: `state`
 
@@ -167,23 +168,22 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 - [x] After check, call `writeState()` with current runs and timestamp (overwrite, not append — we only care about the latest snapshot)
 
 ### 6. Slack notifications (`src/slack.mjs`)
-- [x] `sendAlert(webhookUrl, watchdogId, propertyUrl, runs, adults, children)` — formats and sends a success alert
+- [x] `sendAlert(webhookUrl, watchdogId, name, propertyUrl, runs, adults, children)` — formats and sends a success alert
 - [x] Message format (Slack mrkdwn):
   ```
-  👋 *{watchdog_id}*
-  Property: <property_url|hotel-name>
+  *{name}*
+  {watchdog_id}
 
   Found availability:
-  • 2026-07-10 → 2026-07-16 _(7 nights)_
-  • 2026-07-20 → 2026-07-24 _(5 nights)_
-
-  <booking_url_with_params|Book the best window (7 nights)>
+  • <booking_url_1|2026-07-10 → 2026-07-16> 7 nights
+  • <booking_url_2|2026-07-20 → 2026-07-24> 5 nights
   ```
-- [x] The booking link should pre-fill `checkin`, `checkout` (end + 1 day), `group_adults`, `group_children`, `no_rooms=1`
-- [x] `sendError(webhookUrl, watchdogId, errorMessage)` — sends an error alert:
+- [x] Each run line links to a pre-filled Booking.com URL with `checkin`, `checkout` (end + 1 day), `group_adults`, `group_children`, `no_rooms=1`
+- [x] Falls back to capitalized URL slug if `name` is empty
+- [x] `sendError(webhookUrl, watchdogId, name, errorMessage)` — sends an error alert:
   ```
-  🚧 *{watchdog_id}*
-  Check out the actions log!
+  🚧 *{name}*
+  {watchdog_id}
   ```error message```
   ```
 - [x] If `webhookUrl` is empty, print to stdout instead (for local dev)
@@ -215,14 +215,15 @@ The form is the primary way to add new watchdogs. Editing/disabling/deleting is 
 
 #### Form fields
 - [x] Create a Google Form with the following fields (in order):
-  1. **Property URL** — Short answer, required. Description: "Full Booking.com hotel URL (e.g. `https://www.booking.com/hotel/it/grand-hotel-roma.html`)". Add response validation: regex containing `booking.com/hotel/`
-  2. **Check-in date (start of window)** — Date, required
-  3. **Check-out date (end of window)** — Date, required
-  4. **Adults** — Dropdown, required. Options: 1, 2, 3, 4, 5, 6
-  5. **Children** — Dropdown, required. Options: 0, 1, 2, 3, 4
-  6. **Minimum consecutive nights** — Dropdown, required. Options: 2, 3, 4, 5, 6, 7, 8, 9, 10, 14
+  1. **Name** — Short answer, required. Description: "Display name for Slack alerts (supports unicode/emojis, e.g. `Grand Hotel Roma 🏛️`)"
+  2. **Property URL** — Short answer, required. Description: "Full Booking.com hotel URL (e.g. `https://www.booking.com/hotel/it/grand-hotel-roma.html`)". Add response validation: regex containing `booking.com/hotel/`
+  3. **Check-in date (start of window)** — Date, required
+  4. **Check-out date (end of window)** — Date, required
+  5. **Adults** — Dropdown, required. Options: 1, 2, 3, 4, 5, 6
+  6. **Children** — Dropdown, required. Options: 0, 1, 2, 3, 4
+  7. **Minimum consecutive nights** — Dropdown, required. Options: 2, 3, 4, 5, 6, 7, 8, 9, 10, 14
 - [x] Link the form to the Google Sheet: Form Settings → Responses → "Link to Sheets" → select the existing watchdog Sheet → use the `config` tab (or let it create and rename)
-- [x] After linking, manually add column headers `id` (column H) and `enabled` (column I) in the Sheet
+- [x] After linking, manually add column headers `id` (column I) and `enabled` (column J) in the Sheet
 
 #### Apps Script trigger for auto-generating the watchdog ID
 - [x] Open the Google Sheet → Extensions → Apps Script
@@ -239,13 +240,14 @@ The form is the primary way to add new watchdogs. Editing/disabling/deleting is 
     var sheet = e.source.getActiveSheet();
     var row = e.range.getRow();
 
-    // Read form values (columns B-G after Timestamp in A)
-    var propertyUrl = sheet.getRange(row, 2).getValue();
-    var checkinDate = sheet.getRange(row, 3).getValue();
-    var checkoutDate = sheet.getRange(row, 4).getValue();
-    var adults      = sheet.getRange(row, 5).getValue();
-    var children    = sheet.getRange(row, 6).getValue();
-    var minNights   = sheet.getRange(row, 7).getValue();
+    // Read form values (columns B-H after Timestamp in A)
+    // B=name (not needed for ID generation)
+    var propertyUrl = sheet.getRange(row, 3).getValue();
+    var checkinDate = sheet.getRange(row, 4).getValue();
+    var checkoutDate = sheet.getRange(row, 5).getValue();
+    var adults      = sheet.getRange(row, 6).getValue();
+    var children    = sheet.getRange(row, 7).getValue();
+    var minNights   = sheet.getRange(row, 8).getValue();
 
     // Extract property slug from URL
     var slug = propertyUrl.split('/').pop().replace('.html', '');
@@ -262,9 +264,9 @@ The form is the primary way to add new watchdogs. Editing/disabling/deleting is 
     // Build ID: slug-YYYYMMDD-YYYYMMDD-{N}N{A}A{C}C
     var id = slug + '-' + fmtDate(checkinDate) + '-' + fmtDate(checkoutDate) + '-' + minNights + 'N' + adults + 'A' + children + 'C';
 
-    // Write ID to column H, enabled=TRUE to column I
-    sheet.getRange(row, 8).setValue(id.toLowerCase());
-    sheet.getRange(row, 9).setValue(true);
+    // Write ID to column I, enabled=TRUE to column J
+    sheet.getRange(row, 9).setValue(id.toLowerCase());
+    sheet.getRange(row, 10).setValue(true);
   }
   ```
 - [x] Set up the trigger: In Apps Script → Triggers → Add trigger → `onFormSubmit` → event source "From spreadsheet" → event type "On form submit"

@@ -10,6 +10,7 @@ console.log('Sending test alert...')
 await sendAlert(
 	webhookUrl,
 	'hexenhauschen-20260701-20260731-4N2A0C',
+	'Hexenhäuschen 🧙‍♀️',
 	'https://www.booking.com/hotel/at/hexenhauschen.en-gb.html',
 	[
 		{ start: '2026-07-10', end: '2026-07-16', nights: 7 },
@@ -24,6 +25,7 @@ console.log('\nSending test error...')
 await sendError(
 	webhookUrl,
 	'hexenhauschen-20260701-20260731-4N2A0C',
+	'Hexenhäuschen 🧙‍♀️',
 	'Playwright timeout after 30s — Booking.com may have changed DOM',
 )
 console.log('Error sent!')
