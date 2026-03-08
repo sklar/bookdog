@@ -1,0 +1,4 @@
+---
+bump: major
+---
+Initial release

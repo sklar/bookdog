@@ -11,8 +11,10 @@ See [SPEC.md](SPEC.md) for full specification. Licensed under [PolyForm Noncomme
 - **Browser automation**: Playwright (Chromium)
 - **Config & state**: Google Sheets API (`googleapis`)
 - **Notifications**: Slack Incoming Webhooks
-- **CI**: GitHub Actions (cron + matrix jobs)
+- **CI**: GitHub Actions (cron + matrix jobs, PR checks, release)
 - **Linting/Formatting**: Biome
+- **Versioning**: Semver via changesets (`.changesets/`)
+- **Dependency updates**: Renovate (monthly)
 
 ## Key Modules
 
@@ -21,3 +23,4 @@ See [SPEC.md](SPEC.md) for full specification. Licensed under [PolyForm Noncomme
 - `src/scraper.mjs` — per-date probing with per-row availability detection
 - `src/check.mjs` — main entrypoint: scrape → find consecutive runs → dedup → alert → write state
 - `src/slack.mjs` — Slack message formatting and delivery
+- `scripts/changeset.mjs` — interactive CLI for creating changeset files

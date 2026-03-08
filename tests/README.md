@@ -2,7 +2,7 @@
 
 ## 🧰 Stack
 
-- Node built-in test runner (`node:test`)
+- [Node 20](https://nodejs.org/) built-in test runner (`node:test`)
 - [Playwright](https://playwright.dev/) (scraper tests)
 
 ## 🧑‍🚀 Commands

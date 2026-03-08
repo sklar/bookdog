@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changesets
+        id: check
+        run: |
+          CHANGESETS=$(find .changesets -name '*.md' ! -name '.gitkeep' 2>/dev/null | head -1)
+          if [ -z "$CHANGESETS" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No changesets found, skipping release"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Changesets found, proceeding with release"
+          fi
+
+      - name: Compute semver
+        if: steps.check.outputs.found == 'true'
+        id: version
+        run: .github/scripts/compute-semver.sh
+
+      - name: Build changelog entry
+        if: steps.check.outputs.found == 'true'
+        id: changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/build-changelog.sh "${{ steps.version.outputs.tag }}"
+
+      - name: Upload preview artifacts
+        if: steps.check.outputs.found == 'true' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preview
+          path: |
+            /tmp/changelog_entry.md
+            /tmp/release_body.md
+
+      - name: Update CHANGELOG.md
+        if: steps.check.outputs.found == 'true' && github.event_name != 'workflow_dispatch'
+        run: |
+          if [ -f CHANGELOG.md ]; then
+            { head -1 CHANGELOG.md
+              echo ""
+              cat /tmp/changelog_entry.md
+              tail -n +2 CHANGELOG.md
+            } > CHANGELOG.tmp
+            mv CHANGELOG.tmp CHANGELOG.md
+          else
+            { echo "# Changelog"
+              echo ""
+              cat /tmp/changelog_entry.md
+            } > CHANGELOG.md
+          fi
+
+      - name: Update package.json version
+        if: steps.check.outputs.found == 'true' && github.event_name != 'workflow_dispatch'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, '\t') + '\n');
+          "
+
+      - name: Clean changesets, commit, tag, release
+        if: steps.check.outputs.found == 'true' && github.event_name != 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          find .changesets -name '*.md' ! -name '.gitkeep' -delete
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md package.json .changesets/
+          git commit -m "release: ${TAG}"
+          git tag "$TAG"
+          git push
+          git push --tags
+
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/release_body.md

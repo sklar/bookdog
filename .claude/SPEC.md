@@ -26,9 +26,19 @@ flowchart TD
 ## Project structure
 ```
 bookdog/
-├── .github/workflows/
-│   ├── check-availability.yml      # Production cron workflow
-│   └── integration-test.yml        # Manual integration test
+├── .changesets/                     # Changeset files for releases
+├── .github/
+│   ├── renovate.json5               # Renovate config (monthly)
+│   ├── scripts/
+│   │   ├── build-changelog.sh       # Changelog generation
+│   │   └── compute-semver.sh        # Semver computation
+│   └── workflows/
+│       ├── check-availability.yml   # Production cron workflow
+│       ├── integration-test.yml     # Manual integration test
+│       ├── pr.yml                   # PR lint + test check
+│       └── release.yml              # Changeset-based release
+├── scripts/
+│   └── changeset.mjs                # Interactive changeset CLI
 ├── src/
 │   ├── config.mjs          # Reads config from Google Sheet
 │   ├── state.mjs           # Read/write state from Google Sheet
@@ -376,9 +386,19 @@ End-to-end validation of the full pipeline against a separate Slack channel.
 ### Updated project structure
 ```
 bookdog/
-├── .github/workflows/
-│   ├── check-availability.yml      # Production cron workflow
-│   └── integration-test.yml        # Manual integration test
+├── .changesets/                     # Changeset files for releases
+├── .github/
+│   ├── renovate.json5               # Renovate config (monthly)
+│   ├── scripts/
+│   │   ├── build-changelog.sh       # Changelog generation
+│   │   └── compute-semver.sh        # Semver computation
+│   └── workflows/
+│       ├── check-availability.yml   # Production cron workflow
+│       ├── integration-test.yml     # Manual integration test
+│       ├── pr.yml                   # PR lint + test check
+│       └── release.yml              # Changeset-based release
+├── scripts/
+│   └── changeset.mjs                # Interactive changeset CLI
 ├── src/
 │   ├── config.mjs
 │   ├── state.mjs

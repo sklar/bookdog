@@ -14,18 +14,29 @@ jobs:
   fetch-config:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20.20.0
+          node-version-file: package.json
           cache: pnpm
-      - run: pnpm install
-      - run: node src/config.mjs
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Fetch config
+        run: node src/config.mjs
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload matrix
+        uses: actions/upload-artifact@v4
         with:
           name: matrix
           path: matrix.json
@@ -36,10 +47,13 @@ jobs:
     outputs:
       matrix: ${{ steps.config.outputs.matrix }}
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download matrix
+        uses: actions/download-artifact@v4
         with:
           name: matrix
-      - id: config
+
+      - name: Set matrix output
+        id: config
         run: echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
 
   check:
@@ -52,18 +66,24 @@ jobs:
       matrix:
         watchdog: ${{ fromJson(needs.load-config.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20.20.0
+          node-version-file: package.json
           cache: pnpm
-      - run: pnpm install
-      - run: npx playwright install chromium --with-deps
-      - name: Lint
-        run: pnpm lint.check
-      - name: Run unit tests
-        run: pnpm test
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install Playwright
+        run: npx playwright install chromium --with-deps
+
       - name: Check availability
         run: node src/check.mjs
         env:

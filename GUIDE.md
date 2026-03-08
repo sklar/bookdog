@@ -2,11 +2,15 @@
 
 ## 🏗️ Setup
 
-1. **Google Cloud service account**: Create one, enable Sheets API, download JSON key
-2. **Google Sheet**: Create with `config` and `state` tabs (headers per SPEC.md)
+1. **Google Cloud service account**<br>
+   Create one, enable Sheets API, download JSON key
+2. **Google Sheet**<br>
+   Create with `config` and `state` tabs (headers per SPEC.md)
 3. **Share sheet** with the service account email
-4. **Google Form**: Link to `config` tab, add Apps Script trigger for auto-ID (see SPEC.md §11)
-5. **Slack webhooks**: Create production + test channel webhooks
+4. **Google Form** (optional)<br>
+   Link to `config` tab, add Apps Script trigger for auto-ID (see SPEC.md §11)
+5. **Slack webhooks**<br>
+   Create production + test channel webhooks
 6. **GitHub Secrets**:
    - `GOOGLE_SERVICE_ACCOUNT_KEY` — full JSON key content
    - `GOOGLE_SHEET_ID` — from sheet URL (`/d/{ID}/edit`)
@@ -24,7 +28,7 @@ Open the Google Sheet directly. Set `enabled` to `FALSE` to pause, or delete the
 ### Cron schedule
 Default: 8:00 UTC. Edit in `.github/workflows/check-availability.yml`.
 
-## 🔍 Troubleshooting
+## 🎯 Troubleshooting
 
 | Problem | Fix |
 |---------|-----|

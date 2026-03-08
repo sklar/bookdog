@@ -7,7 +7,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 
 ## 🧰 Stack
 
-- Node 20 (ESM)
+- [Node 20](https://nodejs.org/) (ESM)
 - [Playwright](https://playwright.dev/) (browser automation)
 - [Google Sheets API](https://developers.google.com/sheets/api) (config & state)
 - Slack Incoming Webhooks (alerts)
@@ -18,16 +18,25 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 
 ```
 /
+├── .changesets/          # changeset files for releases
+├── .github/
+│   ├── renovate.json5
+│   ├── scripts/          # release helper scripts
+│   └── workflows/
+│       ├── check-availability.yml
+│       ├── integration-test.yml
+│       ├── pr.yml
+│       └── release.yml
+├── scripts/
+│   └── changeset.mjs     # interactive changeset CLI
 ├── src/
-│   ├── check.mjs       # main entrypoint
-│   ├── config.mjs      # Google Sheet config reader
-│   ├── scraper.mjs     # Playwright availability prober
-│   ├── slack.mjs       # Slack message formatting
-│   └── state.mjs       # dedup state read/write
+│   ├── check.mjs         # main entrypoint
+│   ├── config.mjs        # Google Sheet config reader
+│   ├── scraper.mjs       # Playwright availability prober
+│   ├── slack.mjs         # Slack message formatting
+│   └── state.mjs         # dedup state read/write
 ├── tests/
 │   └── fixtures/
-├── .github/
-│   └── workflows/
 ├── biome.jsonc
 └── package.json
 ```
@@ -42,6 +51,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 | `pnpm test.alert` | Send test Slack alert |
 | `pnpm lint.check` | Check with Biome |
 | `pnpm lint.write` | Fix with Biome |
+| `pnpm changeset` | Create a new changeset |
 
 ## ✋ Disclaimer
 

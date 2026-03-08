@@ -5,6 +5,7 @@
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"packageManager": "pnpm@10.29.3",
 	"scripts": {
+		"changeset": "node scripts/changeset.mjs",
 		"check": "node src/check.mjs",
 		"check.dry": "node --env-file=.env src/check.mjs",
 		"lint.check": "biome check",
@@ -17,7 +18,8 @@
 		"playwright": "1.58.2"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.3.15"
+		"@biomejs/biome": "2.3.15",
+		"@clack/prompts": "1.1.0"
 	},
 	"engines": {
 		"node": "20.20.0",

@@ -1,0 +1,25 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+  baseBranches: ["main"],
+  schedule: ["on the 1st day of the month"],
+  rangeStrategy: "pin",
+  postUpdateOptions: ["pnpmDedupe"],
+  automerge: true,
+  automergeType: "pr",
+  packageRules: [
+    {
+      matchUpdateTypes: ["minor", "patch"],
+      automerge: true,
+      groupName: "all non-major dependencies",
+    },
+    {
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      matchDepNames: ["node", "pnpm"],
+      automerge: false,
+    },
+  ],
+}
