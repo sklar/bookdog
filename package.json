@@ -1,7 +1,7 @@
 {
 	"name": "bookdog",
 	"description": "Booking.com availability watchdog — scrapes properties, alerts via Slack",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"packageManager": "pnpm@10.29.3",
 	"scripts": {
