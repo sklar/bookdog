@@ -2,7 +2,7 @@ name: Check Availability
 
 on:
   schedule:
-    - cron: '0 8 * * *'
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -14,6 +14,9 @@ jobs:
   fetch-config:
     runs-on: ubuntu-latest
     steps:
+      - name: Random delay
+        run: sleep $((RANDOM % 3600))
+
       - name: Checkout
         uses: actions/checkout@v4
 

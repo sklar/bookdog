@@ -124,7 +124,7 @@ New rows are added via a Google Form (see section 11). Editing and disabling is 
 - [x] Pass `DRY_RUN: ${{ inputs.dry_run || 'false' }}` as env to the check step
 - [x] Add a test step before the main check: `pnpm test` (unit tests, fails fast)
 - [x] Auto-delete the workflow run on success (`gh run delete`) to keep logs private on a public repo. Failed runs are preserved for debugging.
-- [x] Cron trigger: `0 8 * * *`
+- [x] Cron trigger: `0 6 * * *` (6:00 UTC = 7:00 CET) with random 0–60 min delay, so checks run between 7:00–8:00 CET
 - [x] `workflow_dispatch` with optional boolean input `dry_run` (default: false, description: "Scrape but don't alert or write state")
 
 ### 2. Google Sheets access (`src/config.mjs` and `src/state.mjs`)

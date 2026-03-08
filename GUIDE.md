@@ -26,7 +26,7 @@ Fill out the Google Form. The ID and enabled flag are auto-generated.
 Open the Google Sheet directly. Set `enabled` to `FALSE` to pause, or delete the row.
 
 ### Cron schedule
-Default: 8:00 UTC. Edit in `.github/workflows/check-availability.yml`.
+Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/check-availability.yml`.
 
 ## 🎯 Troubleshooting
 
