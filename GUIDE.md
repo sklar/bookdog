@@ -37,6 +37,7 @@ Default: 8:00 UTC. Edit in `.github/workflows/check-availability.yml`.
 | All dates show unavailable | Check property URL is correct. Update selectors if Booking.com changed DOM |
 | Config loading fails | Verify `GOOGLE_SERVICE_ACCOUNT_KEY` and sheet sharing |
 | Duplicate alerts | State tab may be corrupted. Check `state` tab in Google Sheet |
+| Can't see run logs | Successful runs are auto-deleted for privacy. Failed runs are preserved for debugging |
 
 ## 💰 Free tier budget
 
