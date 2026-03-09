@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.1
+
+### Fixes
+
+- `5dc0433` **CI**: Grants `actions:write` to run delete in Check availability workflow.
+
+
+
 ## v1.1.0
 
 ### Features
