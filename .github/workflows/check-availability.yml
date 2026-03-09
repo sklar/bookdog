@@ -10,6 +10,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  actions: write
+
 jobs:
   fetch-config:
     runs-on: ubuntu-latest
