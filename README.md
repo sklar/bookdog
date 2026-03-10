@@ -1,5 +1,7 @@
 # Bookdog
 
+[![Integration Test](https://github.com/sklar/bookdog/actions/workflows/integration-test.yml/badge.svg)](https://github.com/sklar/bookdog/actions/workflows/integration-test.yml)
+
 Booking.com availability watchdog — scrapes properties daily via GitHub Actions, detects consecutive available nights, alerts via Slack.
 
 - [Setup, usage and troubleshooting guide](GUIDE.md)

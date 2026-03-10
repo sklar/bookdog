@@ -1,6 +1,8 @@
 name: Integration Test
 
 on:
+  schedule:
+    - cron: '0 8 1 * *'
   workflow_dispatch:
 
 jobs:
@@ -32,6 +34,12 @@ jobs:
       - name: Run unit tests
         run: pnpm test
 
+      - name: Compute dates
+        id: dates
+        run: |
+          echo "checkin=$(date -d '+1 month' '+%Y-%m-01')" >> "$GITHUB_OUTPUT"
+          echo "checkout=$(date -d '+1 month +14 days' '+%Y-%m-15')" >> "$GITHUB_OUTPUT"
+
       - name: Integration test
         run: node src/check.mjs
         env:
@@ -39,8 +47,8 @@ jobs:
             {
               "id": "test-hexenhauschen",
               "property_url": "https://www.booking.com/hotel/at/hexenhauschen.en-gb.html",
-              "checkin_date": "2026-07-01",
-              "checkout_date": "2026-07-31",
+              "checkin_date": "${{ steps.dates.outputs.checkin }}",
+              "checkout_date": "${{ steps.dates.outputs.checkout }}",
               "adults": 2,
               "children": 0,
               "min_nights": 3
