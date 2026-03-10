@@ -1,0 +1,26 @@
+name: Cleanup
+
+on:
+  workflow_run:
+    workflows: [Check Availability]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  delete-run:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete triggering run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run delete ${{ github.event.workflow_run.id }} --repo ${{ github.repository }}
+
+      - name: Delete previous cleanup runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run list --workflow cleanup.yml --status completed --json databaseId -q '.[].databaseId' --repo ${{ github.repository }} \
+            | xargs -I{} gh run delete {} --repo ${{ github.repository }}
