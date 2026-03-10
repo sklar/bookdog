@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.2
+
+### Fixes
+
+- `7cc7684` **CI**: Move run deletion to separate cleanup workflow.
+
+### Tests
+
+- `7cc7684` **CI**: Run integration test monthly with dynamic check-in and check-out dates.
+
+
+
 ## v1.1.1
 
 ### Fixes
