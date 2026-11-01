@@ -5,7 +5,7 @@
 Booking.com availability watchdog — scrapes properties daily via GitHub Actions, detects consecutive available nights, alerts via Slack.
 
 - [Setup, usage and troubleshooting guide](GUIDE.md)
-- [Full specification](.claude/SPEC.md)
+- [Original build plan](docs/SPEC.md), kept for history
 
 ## 🧰 Stack
 
@@ -20,15 +20,18 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 
 ```
 /
+├── .agents/rules/        # agent rules, imported by AGENTS.md
 ├── .changesets/          # changeset files for releases
 ├── .github/
 │   ├── renovate.json5
 │   ├── scripts/          # release helper scripts
 │   └── workflows/
 │       ├── check-availability.yml
+│       ├── cleanup.yml
 │       ├── integration-test.yml
 │       ├── pr.yml
 │       └── release.yml
+├── docs/                 # ADRs, agent docs, original build plan
 ├── scripts/
 │   └── changeset.mjs     # interactive changeset CLI
 ├── src/

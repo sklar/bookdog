@@ -5,10 +5,10 @@
 1. **Google Cloud service account**<br>
    Create one, enable Sheets API, download JSON key
 2. **Google Sheet**<br>
-   Create with `config` and `state` tabs (headers per SPEC.md)
+   Create with `config` and `state` tabs (headers per [docs/SPEC.md](docs/SPEC.md#google-sheet-structure))
 3. **Share sheet** with the service account email
 4. **Google Form** (optional)<br>
-   Link to `config` tab, add Apps Script trigger for auto-ID (see SPEC.md §11)
+   Link to `config` tab, add Apps Script trigger for auto-ID (see [docs/SPEC.md §11](docs/SPEC.md#11-google-form--apps-script-auto-id-setup))
 5. **Slack webhooks**<br>
    Create production + test channel webhooks
 6. **GitHub Secrets**:
