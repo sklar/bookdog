@@ -3,6 +3,7 @@
 
 # ai
 .claude/*.local.json
+.scratch/
 
 # dependencies
 node_modules
