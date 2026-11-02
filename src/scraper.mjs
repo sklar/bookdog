@@ -76,6 +76,7 @@ async function checkDate(page, propertyUrl, date, adults, children, minNights) {
 		for (const row of rows) {
 			const priceCell = await row.$('.hprt-table-cell-price')
 			if (!priceCell) continue
+			// biome-ignore lint/performance/useDomNodeTextContent: Playwright method, not the DOM property. innerText skips hidden text, which must not count as "not available"
 			const text = (await priceCell.innerText()).toLowerCase()
 			if (!UNAVAIL_PATTERNS.some((p) => text.includes(p))) return true
 		}
