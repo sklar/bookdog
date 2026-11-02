@@ -19,7 +19,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.4",
-		"@clack/prompts": "1.1.0"
+		"@clack/prompts": "1.8.1"
 	},
 	"engines": {
 		"node": "26.13.0"
