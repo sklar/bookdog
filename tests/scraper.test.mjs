@@ -52,56 +52,54 @@ after(() => {
 	if (server) server.close()
 })
 
-describe(
-	'scraper against fixtures',
-	{ skip: !playwrightAvailable && 'Playwright not available' },
-	() => {
-		it('detects available rooms', async () => {
-			const result = await scrapeAvailability(
-				`${baseUrl}/available.html`,
-				'2026-07-01',
-				'2026-07-01',
-				2,
-				0,
-			)
-			assert.equal(result.length, 1)
-			assert.equal(result[0].available, true)
-		})
+describe('scraper against fixtures', {
+	skip: !playwrightAvailable && 'Playwright not available',
+}, () => {
+	it('detects available rooms', async () => {
+		const result = await scrapeAvailability(
+			`${baseUrl}/available.html`,
+			'2026-07-01',
+			'2026-07-01',
+			2,
+			0,
+		)
+		assert.equal(result.length, 1)
+		assert.equal(result[0].available, true)
+	})
 
-		it('detects sold out property', async () => {
-			const result = await scrapeAvailability(
-				`${baseUrl}/sold-out.html`,
-				'2026-07-01',
-				'2026-07-01',
-				2,
-				0,
-			)
-			assert.equal(result.length, 1)
-			assert.equal(result[0].available, false)
-		})
+	it('detects sold out property', async () => {
+		const result = await scrapeAvailability(
+			`${baseUrl}/sold-out.html`,
+			'2026-07-01',
+			'2026-07-01',
+			2,
+			0,
+		)
+		assert.equal(result.length, 1)
+		assert.equal(result[0].available, false)
+	})
 
-		it('detects partial availability (some rooms unavailable)', async () => {
-			const result = await scrapeAvailability(
-				`${baseUrl}/partial-availability.html`,
-				'2026-07-01',
-				'2026-07-01',
-				2,
-				0,
-			)
-			assert.equal(result.length, 1)
-			assert.equal(result[0].available, true)
-		})
+	it('detects partial availability (some rooms unavailable)', async () => {
+		const result = await scrapeAvailability(
+			`${baseUrl}/partial-availability.html`,
+			'2026-07-01',
+			'2026-07-01',
+			2,
+			0,
+		)
+		assert.equal(result.length, 1)
+		assert.equal(result[0].available, true)
+	})
 
-		it('detects all rooms unavailable', async () => {
-			const result = await scrapeAvailability(
-				`${baseUrl}/all-rooms-unavailable.html`,
-				'2026-07-01',
-				'2026-07-01',
-				2,
-				0,
-			)
-			assert.equal(result.length, 1)
-			assert.equal(result[0].available, false)
-		})
-	},
-)
+	it('detects all rooms unavailable', async () => {
+		const result = await scrapeAvailability(
+			`${baseUrl}/all-rooms-unavailable.html`,
+			'2026-07-01',
+			'2026-07-01',
+			2,
+			0,
+		)
+		assert.equal(result.length, 1)
+		assert.equal(result[0].available, false)
+	})
+})
