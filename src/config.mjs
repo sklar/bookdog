@@ -7,8 +7,9 @@ import { google } from 'googleapis'
 
 function getAuth() {
 	const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
-	return new google.auth.GoogleAuth({
-		credentials: key,
+	return new google.auth.JWT({
+		email: key.client_email,
+		key: key.private_key,
 		scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 	})
 }

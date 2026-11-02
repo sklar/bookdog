@@ -14,7 +14,7 @@
 		"test.alert": "node --env-file=.env tests/send-test-alert.mjs"
 	},
 	"dependencies": {
-		"googleapis": "171.4.0",
+		"googleapis": "189.0.0",
 		"playwright": "1.64.1"
 	},
 	"devDependencies": {
