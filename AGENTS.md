@@ -13,6 +13,7 @@ Development workflow: @.agents/rules/workflow.md
 
 - Commit to `next`, then promote through one PR `next` → `main`. `main` runs the cron.
 - A push to `main` with files in `.changesets/` makes a release, and the bot commits directly to `main`.
+- `mise.toml` pins Node and pnpm on the dev machine only. CI reads `engines.node` and `packageManager`, so change each version in both places.
 - The repo and Actions logs are public. Keep Sheet data out of commits, PR text and log output.
 - `cleanup.yml` deletes successful Check Availability runs from every branch, logs included. A debug run must exit non-zero to keep its logs.
 - `dry_run` also skips Slack error messages. Testing them needs `dry_run=false`.

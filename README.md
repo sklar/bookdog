@@ -9,7 +9,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 
 ## 🧰 Stack
 
-- [Node 20](https://nodejs.org/) (ESM)
+- [Node 26](https://nodejs.org/) (ESM)
 - [Playwright](https://playwright.dev/) (browser automation)
 - [Google Sheets API](https://developers.google.com/sheets/api) (config & state)
 - Slack Incoming Webhooks (alerts)
