@@ -58,8 +58,7 @@ describe('scraper against fixtures', {
 	it('detects available rooms', async () => {
 		const result = await scrapeAvailability(
 			`${baseUrl}/available.html`,
-			'2026-07-01',
-			'2026-07-01',
+			['2026-07-01'],
 			2,
 			0,
 		)
@@ -70,8 +69,7 @@ describe('scraper against fixtures', {
 	it('detects sold out property', async () => {
 		const result = await scrapeAvailability(
 			`${baseUrl}/sold-out.html`,
-			'2026-07-01',
-			'2026-07-01',
+			['2026-07-01'],
 			2,
 			0,
 		)
@@ -82,8 +80,7 @@ describe('scraper against fixtures', {
 	it('detects partial availability (some rooms unavailable)', async () => {
 		const result = await scrapeAvailability(
 			`${baseUrl}/partial-availability.html`,
-			'2026-07-01',
-			'2026-07-01',
+			['2026-07-01'],
 			2,
 			0,
 		)
@@ -94,8 +91,7 @@ describe('scraper against fixtures', {
 	it('detects all rooms unavailable', async () => {
 		const result = await scrapeAvailability(
 			`${baseUrl}/all-rooms-unavailable.html`,
-			'2026-07-01',
-			'2026-07-01',
+			['2026-07-01'],
 			2,
 			0,
 		)

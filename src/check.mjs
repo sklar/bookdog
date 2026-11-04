@@ -1,5 +1,6 @@
 /**
- * Main entrypoint — orchestrates one watchdog run.
+ * Checks one watchdog. `runWatchdog` holds the logic, and the CLI block at the
+ * bottom wires in the real scrape, Sheet and Slack.
  */
 
 import { getAuth } from './config.mjs'
@@ -7,6 +8,37 @@ import { scrapeAvailability } from './scraper.mjs'
 import { sendAlert, sendError } from './slack.mjs'
 import { readState, writeState } from './state.mjs'
 
+/**
+ * One row of the Sheet, as the CLI reads it from `WATCHDOG_CONFIG`.
+ *
+ * @typedef {object} Watchdog
+ * @property {string} id
+ * @property {string} [name] Title of the Slack messages.
+ * @property {string} property_url
+ * @property {string} checkin_date Start of the window, `YYYY-MM-DD`.
+ * @property {string} checkout_date End of the window, `YYYY-MM-DD`.
+ * @property {number} [adults] Defaults to 2.
+ * @property {number} [children] Defaults to 0.
+ * @property {number} [min_nights] Defaults to 3.
+ */
+
+/**
+ * Free nights in a sequence.
+ *
+ * @typedef {object} Stretch
+ * @property {string} start First available date.
+ * @property {string} end Last available date, not the check-out date.
+ * @property {number} nights Count of available dates.
+ */
+
+/**
+ * Finds each stretch of at least `minNights` available dates. Any date that
+ * isn't available ends the sequence.
+ *
+ * @param {{ date: string, available: boolean }[]} availability Dates in any order.
+ * @param {number} minNights Shortest stretch to report.
+ * @returns {Stretch[]} Stretches in date order.
+ */
 export function findConsecutiveRuns(availability, minNights) {
 	const sorted = [...availability].sort((a, b) => a.date.localeCompare(b.date))
 	const runs = []
@@ -30,7 +62,7 @@ export function findConsecutiveRuns(availability, minNights) {
 		}
 	}
 
-	// Handle trailing run
+	// A stretch can reach the last date, so no later date closes it
 	if (runLength >= minNights) {
 		runs.push({
 			start: runStart,
@@ -42,6 +74,14 @@ export function findConsecutiveRuns(availability, minNights) {
 	return runs
 }
 
+/**
+ * Keeps the stretches that have no alert yet. An alerted stretch matches when
+ * `start` and `end` are both equal.
+ *
+ * @param {Stretch[]} currentRuns Stretches found by this check.
+ * @param {Stretch[]} alertedRuns Stretches from state.
+ * @returns {Stretch[]} The new stretches.
+ */
 export function deduplicateRuns(currentRuns, alertedRuns) {
 	return currentRuns.filter(
 		(run) =>
@@ -49,29 +89,55 @@ export function deduplicateRuns(currentRuns, alertedRuns) {
 	)
 }
 
-const isDryRun =
-	process.argv.includes('--dry-run') || process.env.DRY_RUN === 'true'
-
-// CLI entrypoint
-const isMain =
-	process.argv[1] &&
-	import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))
-if (isMain) {
-	if (isDryRun) {
-		console.log('🐶 Bookdog — DRY RUN MODE (no alerts, no state writes)')
+/**
+ * Lists each date from `start` to `end`, both included. The list is empty when
+ * `start` is after `end`. It steps in UTC, so a clock change can't skip or
+ * repeat a date.
+ *
+ * @param {string} start First date, `YYYY-MM-DD`.
+ * @param {string} end Last date, `YYYY-MM-DD`.
+ * @returns {string[]} The dates in order, `YYYY-MM-DD`.
+ */
+function dateRange(start, end) {
+	const dates = []
+	const d = new Date(`${start}T00:00:00Z`)
+	const last = new Date(`${end}T00:00:00Z`)
+	while (d <= last) {
+		dates.push(d.toISOString().slice(0, 10))
+		d.setUTCDate(d.getUTCDate() + 1)
 	}
+	return dates
+}
 
-	const webhookUrl = process.env.SLACK_WEBHOOK_URL || ''
-	const sheetId = process.env.GOOGLE_SHEET_ID || ''
-
-	let config
-	try {
-		config = JSON.parse(process.env.WATCHDOG_CONFIG || '{}')
-	} catch {
-		console.error('Failed to parse WATCHDOG_CONFIG')
-		process.exit(1)
-	}
-
+/**
+ * Checks one watchdog in this order: scrape, find stretches, dedup, send one
+ * Slack message, write state. With no stretch, it stops after the second step.
+ *
+ * An error in any step sends the Slack error message and returns `red`. A dry
+ * run still scrapes and reads state, but it sends nothing and writes nothing.
+ *
+ * @param {object} options
+ * @param {Watchdog} options.watchdog
+ * @param {Function} options.scrape Takes the property URL, check-in dates,
+ *   adults, children and minimum nights, in that order. Returns
+ *   `{ date, available }` for each date.
+ * @param {{ read: Function, write: Function } | null} options.stateStore
+ *   `read(id)` returns the state. `write(id, state)` takes the object `read`
+ *   returned, because that object holds the Sheet row. `null` keeps no state,
+ *   so each check treats every stretch as new.
+ * @param {string} options.webhookUrl Slack webhook. An empty string prints the
+ *   messages instead.
+ * @param {boolean} options.isDryRun
+ * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check,
+ *   otherwise `green`.
+ */
+export async function runWatchdog({
+	watchdog,
+	scrape,
+	stateStore,
+	webhookUrl,
+	isDryRun,
+}) {
 	const {
 		id,
 		name,
@@ -81,12 +147,7 @@ if (isMain) {
 		adults = 2,
 		children = 0,
 		min_nights = 3,
-	} = config
-
-	if (!id || !property_url || !checkin_date || !checkout_date) {
-		console.error('Missing required config fields')
-		process.exit(1)
-	}
+	} = watchdog
 
 	console.log(`🐶 Bookdog — ${id}`)
 	console.log(`   Property: ${property_url}`)
@@ -96,11 +157,9 @@ if (isMain) {
 	)
 
 	try {
-		// Scrape
-		const availability = await scrapeAvailability(
+		const availability = await scrape(
 			property_url,
-			checkin_date,
-			checkout_date,
+			dateRange(checkin_date, checkout_date),
 			adults,
 			children,
 			min_nights,
@@ -108,37 +167,33 @@ if (isMain) {
 		const availCount = availability.filter((d) => d.available).length
 		console.log(`   Available dates: ${availCount}/${availability.length}`)
 
-		// Find runs
 		const runs = findConsecutiveRuns(availability, min_nights)
 		console.log(`   Qualifying runs (≥${min_nights} nights): ${runs.length}`)
 
 		if (runs.length === 0) {
 			console.log('   No qualifying runs found.')
-			process.exit(0)
+			return 'green'
 		}
 
-		// Dedup against state
 		let newRuns = runs
 		let state = { rowIndex: null, lastChecked: null, alertedRuns: [] }
 
-		if (sheetId) {
-			const auth = getAuth()
-			state = await readState(sheetId, id, auth)
+		if (stateStore) {
+			state = await stateStore.read(id)
 			newRuns = deduplicateRuns(runs, state.alertedRuns)
 		}
 
 		if (newRuns.length === 0) {
 			console.log('   All runs already alerted.')
-			// Still update last_checked
-			if (sheetId && !isDryRun) {
-				const auth = getAuth()
+			// Still write. This updates last_checked and drops alerted stretches
+			// that went away.
+			if (stateStore && !isDryRun) {
 				state.alertedRuns = runs
-				await writeState(sheetId, id, state, auth)
+				await stateStore.write(id, state)
 			}
-			process.exit(0)
+			return 'green'
 		}
 
-		// Alert
 		if (isDryRun) {
 			console.log('[DRY RUN] Would send alert:')
 			for (const r of newRuns) {
@@ -157,18 +212,67 @@ if (isMain) {
 			console.log('   Slack alert sent!')
 		}
 
-		// Write state
-		if (sheetId && !isDryRun) {
-			const auth = getAuth()
-			state.alertedRuns = runs // overwrite with full current snapshot
-			await writeState(sheetId, id, state, auth)
+		if (stateStore && !isDryRun) {
+			// Save every current stretch. Saving only newRuns would alert the
+			// others again.
+			state.alertedRuns = runs
+			await stateStore.write(id, state)
 			console.log('   State updated.')
 		}
+
+		return 'green'
 	} catch (err) {
 		console.error(`Error: ${err.message}`)
 		if (!isDryRun) {
+			// Slack may be what failed, so a second failure here changes nothing
 			await sendError(webhookUrl, id, name, err.message).catch(() => {})
 		}
+		return 'red'
+	}
+}
+
+// CLI entrypoint. Reads the environment, wires the real dependencies and exits.
+if (import.meta.main) {
+	const isDryRun =
+		process.argv.includes('--dry-run') || process.env.DRY_RUN === 'true'
+
+	if (isDryRun) {
+		console.log('🐶 Bookdog — DRY RUN MODE (no alerts, no state writes)')
+	}
+
+	const webhookUrl = process.env.SLACK_WEBHOOK_URL || ''
+	const sheetId = process.env.GOOGLE_SHEET_ID || ''
+
+	let watchdog
+	try {
+		watchdog = JSON.parse(process.env.WATCHDOG_CONFIG || '{}')
+	} catch {
+		console.error('Failed to parse WATCHDOG_CONFIG')
 		process.exit(1)
 	}
+
+	const { id, property_url, checkin_date, checkout_date } = watchdog
+
+	if (!id || !property_url || !checkin_date || !checkout_date) {
+		console.error('Missing required config fields')
+		process.exit(1)
+	}
+
+	// getAuth stays inside read and write, so a bad key reaches the Slack error path
+	const stateStore = sheetId
+		? {
+				read: (watchdogId) => readState(sheetId, watchdogId, getAuth()),
+				write: (watchdogId, state) =>
+					writeState(sheetId, watchdogId, state, getAuth()),
+			}
+		: null
+
+	const result = await runWatchdog({
+		watchdog,
+		scrape: scrapeAvailability,
+		stateStore,
+		webhookUrl,
+		isDryRun,
+	})
+	process.exit(result === 'green' ? 0 : 1)
 }

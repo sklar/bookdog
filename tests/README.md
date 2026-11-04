@@ -18,6 +18,7 @@
 tests/
 ├── logic.test.mjs        # consecutive-run + dedup logic
 ├── scraper.test.mjs      # Playwright against local fixtures
+├── watchdog.test.mjs     # one watchdog: fake scrape, in-memory state, local Slack
 ├── send-test-alert.mjs   # dev util: send fake Slack alert
 ├── save-snapshot.mjs     # dev util: capture Booking.com fixture
 └── fixtures/
