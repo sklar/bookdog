@@ -1,32 +1,42 @@
 /**
- * Playwright scraper for Booking.com availability.
- * Per-date probing with concurrent browser pages.
+ * Asks Booking if a property has rooms, with one page load per check-in date.
+ * Up to `CONCURRENCY` Playwright pages share the dates.
  */
 import { chromium } from 'playwright'
 
+// Pages open at once, to fit a long window inside the job timeout
 const CONCURRENCY = 5
 
-function dateRange(start, end) {
-	const dates = []
-	const d = new Date(`${start}T00:00:00Z`)
-	const last = new Date(`${end}T00:00:00Z`)
-	while (d <= last) {
-		dates.push(d.toISOString().slice(0, 10))
-		d.setUTCDate(d.getUTCDate() + 1)
-	}
-	return dates
-}
-
+/**
+ * @param {number} ms
+ * @returns {Promise<void>} Resolves after `ms` milliseconds.
+ */
 function sleep(ms) {
 	return new Promise((r) => setTimeout(r, ms))
 }
 
+/**
+ * Pauses a worker between page loads, to go easy on Booking.
+ *
+ * @param {number} [min] Shortest pause in ms.
+ * @param {number} [max] Longest pause in ms.
+ * @returns {Promise<void>} Resolves after the pause.
+ */
 function randomDelay(min = 1500, max = 3500) {
 	return sleep(min + Math.random() * (max - min))
 }
 
+// Lower-case price cell text that means a room has no offer
 const UNAVAIL_PATTERNS = ['not available', 'prices are not available']
 
+/**
+ * Closes the cookie banner, the sign-in prompt or any other close button that is
+ * visible now. It doesn't wait, because Playwright ignores the `isVisible`
+ * timeout. A banner that appears a moment later stays open.
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<void>} Resolves when each selector has had its turn.
+ */
 async function dismissBanners(page) {
 	const selectors = [
 		'[id="onetrust-accept-btn-handler"]',
@@ -38,11 +48,25 @@ async function dismissBanners(page) {
 			const el = page.locator(sel).first()
 			if (await el.isVisible({ timeout: 500 })) await el.click()
 		} catch {
-			// ignore
+			// A banner that won't close doesn't stop the room table read
 		}
 	}
 }
 
+/**
+ * Loads the property page for one check-in date and reads its room table. The
+ * URL asks for a stay of `minNights`, so `true` means Booking offers that stay.
+ * Throws when the page doesn't load, with a limit of 30 seconds.
+ *
+ * @param {import('playwright').Page} page
+ * @param {string} propertyUrl
+ * @param {string} date Check-in date, `YYYY-MM-DD`.
+ * @param {number} adults
+ * @param {number} children
+ * @param {number} minNights
+ * @returns {Promise<boolean>} `true` when a price cell lacks the "not available"
+ *   text.
+ */
 async function checkDate(page, propertyUrl, date, adults, children, minNights) {
 	const checkoutDate = new Date(`${date}T00:00:00Z`)
 	checkoutDate.setUTCDate(checkoutDate.getUTCDate() + minNights)
@@ -61,18 +85,18 @@ async function checkDate(page, propertyUrl, date, adults, children, minNights) {
 	})
 	await dismissBanners(page)
 
-	// Wait for room table to render (JS-hydrated), fall back to timeout
+	// The room table can appear after domcontentloaded, and the first page of a
+	// browser session answers 202 before it settles. So wait up to 5 seconds.
 	try {
 		await page.waitForSelector('.hprt-table', { timeout: 5000 })
 	} catch {
-		// Table didn't appear — page may be blocked or property fully sold out
+		// No table in time. The row count below decides what that means.
 	}
 
-	// Check room table rows for per-room availability
 	const rows = await page.$$('.hprt-table tr')
 
 	if (rows.length > 0) {
-		// Per-row: at least one row's price cell must not say "not available"
+		// One price cell without "not available" makes the date available
 		for (const row of rows) {
 			const priceCell = await row.$('.hprt-table-cell-price')
 			if (!priceCell) continue
@@ -83,14 +107,30 @@ async function checkDate(page, propertyUrl, date, adults, children, minNights) {
 		return false
 	}
 
-	// No table rows — treat as sold out
+	// A sold out property lands here, and so do a block page and a redirect to a
+	// city page. All three read as not available.
 	return false
 }
 
+/**
+ * Checks each date in its own page load. Workers take dates from a shared queue,
+ * one worker per page, and each pauses between its loads.
+ *
+ * A date whose page throws comes back as not available, with a warning in the
+ * log. So `available: false` doesn't always mean sold out.
+ *
+ * @param {string} propertyUrl
+ * @param {string[]} dates Check-in dates, `YYYY-MM-DD`.
+ * @param {number} adults
+ * @param {number} children
+ * @param {number} [minNights] Length of the stay each page asks about. Defaults
+ *   to 1.
+ * @returns {Promise<{ date: string, available: boolean }[]>} One result per date,
+ *   sorted by date.
+ */
 export async function scrapeAvailability(
 	propertyUrl,
-	checkinDate,
-	checkoutDate,
+	dates,
 	adults,
 	children,
 	minNights = 1,
@@ -108,16 +148,13 @@ export async function scrapeAvailability(
 			locale: 'en-US',
 		})
 
-		const allDates = dateRange(checkinDate, checkoutDate)
-		const queue = [...allDates]
+		const queue = [...dates]
 		const results = []
 		let completed = 0
 
-		console.log(
-			`Scraping ${allDates.length} dates (${CONCURRENCY} concurrent)...`,
-		)
+		console.log(`Scraping ${dates.length} dates (${CONCURRENCY} concurrent)...`)
 
-		const pageCount = Math.min(CONCURRENCY, allDates.length)
+		const pageCount = Math.min(CONCURRENCY, dates.length)
 		const pages = await Promise.all(
 			Array.from({ length: pageCount }, () => context.newPage()),
 		)
@@ -137,13 +174,13 @@ export async function scrapeAvailability(
 					results.push({ date, available })
 					completed++
 					console.log(
-						`  [${completed}/${allDates.length}] ${date} — ${available ? 'available' : 'sold out'}`,
+						`  [${completed}/${dates.length}] ${date} — ${available ? 'available' : 'sold out'}`,
 					)
 				} catch (err) {
 					console.warn(`Failed to check ${date}: ${err.message}`)
 					results.push({ date, available: false })
 					completed++
-					console.log(`  [${completed}/${allDates.length}] ${date} — error`)
+					console.log(`  [${completed}/${dates.length}] ${date} — error`)
 				}
 
 				if (queue.length > 0) await randomDelay()
@@ -152,7 +189,7 @@ export async function scrapeAvailability(
 
 		await Promise.all(pages.map((p) => worker(p)))
 
-		// Sort results by date (workers finish in arbitrary order)
+		// Workers finish in any order
 		results.sort((a, b) => a.date.localeCompare(b.date))
 
 		console.log(`Scraping completed: ${results.length} dates`)
