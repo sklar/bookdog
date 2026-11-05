@@ -19,3 +19,14 @@
 export function addDays(date, days) {
 	return Temporal.PlainDate.from(date).add({ days }).toString()
 }
+
+/**
+ * Counts the days from one date to another.
+ *
+ * @param {string} start `YYYY-MM-DD`.
+ * @param {string} end `YYYY-MM-DD`.
+ * @returns {number} The days. Negative when `end` is before `start`.
+ */
+export function daysBetween(start, end) {
+	return Temporal.PlainDate.from(start).until(end).days
+}

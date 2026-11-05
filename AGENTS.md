@@ -2,7 +2,7 @@
 
 Booking.com availability watchdog. GitHub Actions cron (daily) scrapes property pages via Playwright, detects consecutive available nights, alerts via Slack. Config and state stored in Google Sheets.
 
-Pipeline, from `src/check.mjs`: scrape → find consecutive runs → dedup → alert → write state.
+Pipeline, from `src/check.mjs`: choose dates → scrape → find stretches → dedup → alert → write state.
 
 Original build plan: [docs/SPEC.md](docs/SPEC.md).
 
