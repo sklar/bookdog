@@ -3,6 +3,7 @@
  * Up to `CONCURRENCY` Playwright pages share the dates.
  */
 import { chromium } from 'playwright'
+import { addDays } from './dates.mjs'
 
 // Pages open at once, to fit a long window inside the job timeout
 const CONCURRENCY = 5
@@ -68,13 +69,9 @@ async function dismissBanners(page) {
  *   text.
  */
 async function checkDate(page, propertyUrl, date, adults, children, minNights) {
-	const checkoutDate = new Date(`${date}T00:00:00Z`)
-	checkoutDate.setUTCDate(checkoutDate.getUTCDate() + minNights)
-	const checkout = checkoutDate.toISOString().slice(0, 10)
-
 	const url = new URL(propertyUrl)
 	url.searchParams.set('checkin', date)
-	url.searchParams.set('checkout', checkout)
+	url.searchParams.set('checkout', addDays(date, minNights))
 	url.searchParams.set('group_adults', String(adults))
 	url.searchParams.set('group_children', String(children))
 	url.searchParams.set('no_rooms', '1')

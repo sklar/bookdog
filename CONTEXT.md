@@ -11,8 +11,15 @@ One row of the Sheet: a property, a window, guests and minimum nights.
 _Avoid_: job, config, entry
 
 **Window**:
-The dates a watchdog covers. A stay must fit inside it.
+The dates a watchdog covers. A stay must fit inside it. Its end is a check-out date.
 _Avoid_: range, period
+
+**Finished window**:
+A window with no check-in date that can still give a stay inside it.
+
+**Invalid window**:
+A window whose start is after its end, or with an impossible date.
+_Avoid_: typo
 
 **Stretch**:
 Free nights in a sequence, at least as many as the watchdog's minimum nights.

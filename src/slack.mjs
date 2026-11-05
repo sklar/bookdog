@@ -2,6 +2,8 @@
  * Sends the two Slack messages, one for new stretches and one for errors.
  */
 
+import { addDays } from './dates.mjs'
+
 /**
  * Builds the Booking link for one stay, with its dates and guests filled in.
  * These values replace any that `propertyUrl` already has.
@@ -21,19 +23,6 @@ function buildBookingUrl(propertyUrl, checkin, checkout, adults, children) {
 	url.searchParams.set('group_children', String(children))
 	url.searchParams.set('no_rooms', '1')
 	return url.toString()
-}
-
-/**
- * Gives the date after `dateStr`. A stretch's `end` is its last available date,
- * and the Booking link needs the check-out date, which is one day later.
- *
- * @param {string} dateStr `YYYY-MM-DD`.
- * @returns {string} The next date, `YYYY-MM-DD`.
- */
-function nextDay(dateStr) {
-	const d = new Date(`${dateStr}T00:00:00Z`)
-	d.setUTCDate(d.getUTCDate() + 1)
-	return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -86,7 +75,8 @@ export async function sendAlert(
 			const url = buildBookingUrl(
 				propertyUrl,
 				r.start,
-				nextDay(r.end),
+				// `end` is the last available date, and check-out is one day later
+				addDays(r.end, 1),
 				adults,
 				children,
 			)

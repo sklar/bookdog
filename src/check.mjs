@@ -4,6 +4,7 @@
  */
 
 import { getAuth } from './config.mjs'
+import { addDays } from './dates.mjs'
 import { scrapeAvailability } from './scraper.mjs'
 import { sendAlert, sendError } from './slack.mjs'
 import { readState, writeState } from './state.mjs'
@@ -91,8 +92,7 @@ export function deduplicateRuns(currentRuns, alertedRuns) {
 
 /**
  * Lists each date from `start` to `end`, both included. The list is empty when
- * `start` is after `end`. It steps in UTC, so a clock change can't skip or
- * repeat a date.
+ * `start` is after `end`.
  *
  * @param {string} start First date, `YYYY-MM-DD`.
  * @param {string} end Last date, `YYYY-MM-DD`.
@@ -100,24 +100,64 @@ export function deduplicateRuns(currentRuns, alertedRuns) {
  */
 function dateRange(start, end) {
 	const dates = []
-	const d = new Date(`${start}T00:00:00Z`)
-	const last = new Date(`${end}T00:00:00Z`)
-	while (d <= last) {
-		dates.push(d.toISOString().slice(0, 10))
-		d.setUTCDate(d.getUTCDate() + 1)
+	for (let date = start; date <= end; date = addDays(date, 1)) {
+		dates.push(date)
 	}
 	return dates
 }
 
 /**
- * Checks one watchdog in this order: scrape, find stretches, dedup, send one
- * Slack message, write state. With no stretch, it stops after the second step.
+ * Says whether `text` is a date that exists. `new Date` turns `2026-02-30` into
+ * Mar 2 with no error, so this compares the date it gets back with `text`.
+ *
+ * @param {string} text
+ * @returns {boolean} `true` for a real date written as `YYYY-MM-DD`.
+ */
+function isRealDate(text) {
+	const date = new Date(`${text}T00:00:00Z`)
+	if (Number.isNaN(date.getTime())) return false
+	return date.toISOString().slice(0, 10) === text
+}
+
+/**
+ * Lists the check-in dates that can still give a stay inside the window. The
+ * first is the later of `start` and `today`. The last is `end` minus `minNights`.
+ *
+ * Throws for an invalid window, which is reversed or has an impossible date. It
+ * isn't a finished window.
+ *
+ * @param {string} start Start of the window, `YYYY-MM-DD`.
+ * @param {string} end End of the window, `YYYY-MM-DD`. It's a check-out date.
+ * @param {string} today `YYYY-MM-DD`.
+ * @param {number} minNights
+ * @returns {string[]} The check-in dates in order, `YYYY-MM-DD`. Empty when the
+ *   window is finished.
+ */
+function chooseCheckIns(start, end, today, minNights) {
+	const isWindowValid = isRealDate(start) && isRealDate(end) && start <= end
+	if (!isWindowValid) {
+		// No dates in this text, because error messages reach the public log
+		throw new Error(
+			'The window has an impossible date, or its start is after its end.',
+		)
+	}
+
+	const isTodayAfterStart = today > start
+	const firstCheckIn = isTodayAfterStart ? today : start
+	return dateRange(firstCheckIn, addDays(end, -minNights))
+}
+
+/**
+ * Checks one watchdog in this order: choose dates, scrape, find stretches, dedup,
+ * send one Slack message, write state. With no dates left, it stops after the
+ * first step and returns `green`. With no stretch, it stops after the third.
  *
  * An error in any step sends the Slack error message and returns `red`. A dry
  * run still scrapes and reads state, but it sends nothing and writes nothing.
  *
  * @param {object} options
  * @param {Watchdog} options.watchdog
+ * @param {string} options.today `YYYY-MM-DD`. The CLI passes today in UTC.
  * @param {Function} options.scrape Takes the property URL, check-in dates,
  *   adults, children and minimum nights, in that order. Returns
  *   `{ date, available }` for each date.
@@ -133,6 +173,7 @@ function dateRange(start, end) {
  */
 export async function runWatchdog({
 	watchdog,
+	today,
 	scrape,
 	stateStore,
 	webhookUrl,
@@ -157,9 +198,20 @@ export async function runWatchdog({
 	)
 
 	try {
+		const checkIns = chooseCheckIns(
+			checkin_date,
+			checkout_date,
+			today,
+			min_nights,
+		)
+		if (checkIns.length === 0) {
+			console.log('   Window finished, no dates to check.')
+			return 'green'
+		}
+
 		const availability = await scrape(
 			property_url,
-			dateRange(checkin_date, checkout_date),
+			checkIns,
 			adults,
 			children,
 			min_nights,
@@ -269,6 +321,7 @@ if (import.meta.main) {
 
 	const result = await runWatchdog({
 		watchdog,
+		today: new Date().toISOString().slice(0, 10),
 		scrape: scrapeAvailability,
 		stateStore,
 		webhookUrl,
