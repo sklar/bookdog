@@ -3,7 +3,8 @@
  * stretches that already had an alert, so the next check can skip them. Row 1
  * holds the headers.
  *
- * Columns: A=watchdog_id, B=last_checked, C=alerted_runs as JSON.
+ * Columns: A=watchdog_id, B=last_checked, C=alerted_runs as JSON. Columns are
+ * read by position, so the old header name in C can stay.
  */
 import { google } from 'googleapis'
 
@@ -14,7 +15,7 @@ import { google } from 'googleapis'
  * @property {number | null} rowIndex Sheet row, counted from 1. `null` when the
  *   watchdog has no row yet.
  * @property {string | null} lastChecked Time of the last write, ISO format.
- * @property {import('./check.mjs').Stretch[]} alertedRuns Stretches that
+ * @property {import('./check.mjs').Stretch[]} alertedStretches Stretches that
  *   already had an alert.
  */
 
@@ -40,12 +41,12 @@ export async function readState(sheetId, watchdogId, auth) {
 			return {
 				rowIndex: i + 1, // 1-based sheet row
 				lastChecked: rows[i][1] || null,
-				alertedRuns: JSON.parse(rows[i][2] || '[]'),
+				alertedStretches: JSON.parse(rows[i][2] || '[]'),
 			}
 		}
 	}
 
-	return { rowIndex: null, lastChecked: null, alertedRuns: [] }
+	return { rowIndex: null, lastChecked: null, alertedStretches: [] }
 }
 
 /**
@@ -55,14 +56,15 @@ export async function readState(sheetId, watchdogId, auth) {
  *
  * @param {string} sheetId The ID from the Sheet's URL.
  * @param {string} watchdogId
- * @param {State} state The object `readState` returned, with new `alertedRuns`.
+ * @param {State} state The object `readState` returned, with new
+ *   `alertedStretches`.
  * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
  * @returns {Promise<void>} Resolves after the write.
  */
 export async function writeState(sheetId, watchdogId, state, auth) {
 	const sheets = google.sheets({ version: 'v4', auth })
 	const now = new Date().toISOString()
-	const values = [[watchdogId, now, JSON.stringify(state.alertedRuns)]]
+	const values = [[watchdogId, now, JSON.stringify(state.alertedStretches)]]
 
 	// RAW stores the text as it is, so Sheets can't turn the time into a date
 	if (state.rowIndex) {

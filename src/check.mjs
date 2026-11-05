@@ -4,7 +4,7 @@
  */
 
 import { getAuth } from './config.mjs'
-import { addDays } from './dates.mjs'
+import { addDays, daysBetween } from './dates.mjs'
 import { scrapeAvailability } from './scraper.mjs'
 import { sendAlert, sendError } from './slack.mjs'
 import { readState, writeState } from './state.mjs'
@@ -13,80 +13,134 @@ import { readState, writeState } from './state.mjs'
  * One row of the Sheet, as the CLI reads it from `WATCHDOG_CONFIG`.
  *
  * @typedef {object} Watchdog
- * @property {string} id
+ * @property {string} id Finds the watchdog's row in the state tab. Slack
+ *   messages show it under the title.
  * @property {string} [name] Title of the Slack messages.
- * @property {string} property_url
+ * @property {string} property_url Booking page of the property.
  * @property {string} checkin_date Start of the window, `YYYY-MM-DD`.
- * @property {string} checkout_date End of the window, `YYYY-MM-DD`.
+ * @property {string} checkout_date End of the window, `YYYY-MM-DD`. It's a
+ *   check-out date.
  * @property {number} [adults] Defaults to 2.
  * @property {number} [children] Defaults to 0.
- * @property {number} [min_nights] Defaults to 3.
+ * @property {number} [min_nights] Length of the stay each check-in date asks
+ *   about. Defaults to 3.
  */
 
 /**
- * Free nights in a sequence.
+ * Free nights in a sequence, at least as many as the watchdog's minimum nights.
  *
  * @typedef {object} Stretch
- * @property {string} start First available date.
- * @property {string} end Last available date, not the check-out date.
- * @property {number} nights Count of available dates.
+ * @property {string} start First night.
+ * @property {string} end Check-out date, which is the last available check-in
+ *   plus the minimum nights.
+ * @property {number} nights Days from `start` to `end`.
  */
 
 /**
- * Finds each stretch of at least `minNights` available dates. Any date that
- * isn't available ends the sequence.
+ * What the scrape found for one check-in date.
  *
- * @param {{ date: string, available: boolean }[]} availability Dates in any order.
- * @param {number} minNights Shortest stretch to report.
+ * @typedef {object} DateResult
+ * @property {string} date `YYYY-MM-DD`.
+ * @property {boolean} available `true` when Booking offers a stay of the
+ *   minimum nights from this date.
+ */
+
+/**
+ * Asks Booking about each check-in date. The CLI passes `scrapeAvailability`,
+ * and the tests pass a fake.
+ *
+ * @callback Scrape
+ * @param {string} propertyUrl
+ * @param {string[]} dates Check-in dates, `YYYY-MM-DD`.
+ * @param {number} adults
+ * @param {number} children
+ * @param {number} minNights Length of the stay each date asks about.
+ * @returns {Promise<DateResult[]>} One result for each date.
+ */
+
+/**
+ * @typedef {import('./state.mjs').State} State
+ */
+
+/**
+ * Keeps the alerted stretches between workflow runs. The CLI backs it with the
+ * state tab of the Sheet.
+ *
+ * @typedef {object} StateStore
+ * @property {(id: string) => Promise<State>} read Returns the state of one
+ *   watchdog.
+ * @property {(id: string, state: State) => Promise<void>} write Saves the
+ *   state. It takes the object `read` returned, because that object holds the
+ *   Sheet row.
+ */
+
+/**
+ * Builds the stretch that a sequence of available check-in dates proves.
+ *
+ * @param {string} firstCheckIn First available date, `YYYY-MM-DD`.
+ * @param {string} lastCheckIn Last available date, `YYYY-MM-DD`.
+ * @param {number} minNights Length of the stay each date proves.
+ * @returns {Stretch} The stretch.
+ */
+function toStretch(firstCheckIn, lastCheckIn, minNights) {
+	const end = addDays(lastCheckIn, minNights)
+	return { start: firstCheckIn, end, nights: daysBetween(firstCheckIn, end) }
+}
+
+/**
+ * Finds each stretch. An available date means Booking offers a stay of
+ * `minNights` from that date, so one is enough. Any date that isn't available
+ * ends the sequence.
+ *
+ * With a minimum of 3 and free nights Jul 10 to 14, the check-ins of Jul 10, 11
+ * and 12 are available. That gives Jul 10 to Jul 15, 5 nights.
+ *
+ * @param {DateResult[]} availability Check-in dates in any order, with no date
+ *   left out. A date that's left out doesn't end the sequence.
+ * @param {number} minNights Length of the stay each date proves.
  * @returns {Stretch[]} Stretches in date order.
  */
-export function findConsecutiveRuns(availability, minNights) {
+export function findStretches(availability, minNights) {
 	const sorted = [...availability].sort((a, b) => a.date.localeCompare(b.date))
-	const runs = []
-	let runStart = null
-	let runLength = 0
+	const stretches = []
+	let firstCheckIn = null
+	let lastCheckIn = null
 
-	for (let i = 0; i < sorted.length; i++) {
-		if (sorted[i].available) {
-			if (!runStart) runStart = sorted[i].date
-			runLength++
-		} else {
-			if (runLength >= minNights) {
-				runs.push({
-					start: runStart,
-					end: sorted[i - 1].date,
-					nights: runLength,
-				})
-			}
-			runStart = null
-			runLength = 0
+	for (const { date, available } of sorted) {
+		if (available) {
+			firstCheckIn ??= date
+			lastCheckIn = date
+			continue
 		}
+		if (firstCheckIn) {
+			stretches.push(toStretch(firstCheckIn, lastCheckIn, minNights))
+		}
+		firstCheckIn = null
 	}
 
 	// A stretch can reach the last date, so no later date closes it
-	if (runLength >= minNights) {
-		runs.push({
-			start: runStart,
-			end: sorted.at(-1).date,
-			nights: runLength,
-		})
+	if (firstCheckIn) {
+		stretches.push(toStretch(firstCheckIn, lastCheckIn, minNights))
 	}
 
-	return runs
+	return stretches
 }
 
 /**
  * Keeps the stretches that have no alert yet. An alerted stretch matches when
  * `start` and `end` are both equal.
  *
- * @param {Stretch[]} currentRuns Stretches found by this check.
- * @param {Stretch[]} alertedRuns Stretches from state.
+ * @param {Stretch[]} currentStretches Stretches found by this check.
+ * @param {Stretch[]} alertedStretches Stretches from state, which already had
+ *   an alert.
  * @returns {Stretch[]} The new stretches.
  */
-export function deduplicateRuns(currentRuns, alertedRuns) {
-	return currentRuns.filter(
-		(run) =>
-			!alertedRuns.some((a) => a.start === run.start && a.end === run.end),
+export function deduplicateStretches(currentStretches, alertedStretches) {
+	return currentStretches.filter(
+		(stretch) =>
+			!alertedStretches.some(
+				(a) => a.start === stretch.start && a.end === stretch.end,
+			),
 	)
 }
 
@@ -110,7 +164,7 @@ function dateRange(start, end) {
  * Says whether `text` is a date that exists. `new Date` turns `2026-02-30` into
  * Mar 2 with no error, so this compares the date it gets back with `text`.
  *
- * @param {string} text
+ * @param {string} text Date from the Sheet.
  * @returns {boolean} `true` for a real date written as `YYYY-MM-DD`.
  */
 function isRealDate(text) {
@@ -121,15 +175,16 @@ function isRealDate(text) {
 
 /**
  * Lists the check-in dates that can still give a stay inside the window. The
- * first is the later of `start` and `today`. The last is `end` minus `minNights`.
+ * first is the later of `start` and `today`. The last is `end` minus
+ * `minNights`.
  *
- * Throws for an invalid window, which is reversed or has an impossible date. It
- * isn't a finished window.
+ * Throws for an invalid window, which is reversed or has an impossible date. An
+ * invalid window isn't a finished window.
  *
  * @param {string} start Start of the window, `YYYY-MM-DD`.
  * @param {string} end End of the window, `YYYY-MM-DD`. It's a check-out date.
  * @param {string} today `YYYY-MM-DD`.
- * @param {number} minNights
+ * @param {number} minNights Length of the stay each check-in date asks about.
  * @returns {string[]} The check-in dates in order, `YYYY-MM-DD`. Empty when the
  *   window is finished.
  */
@@ -148,9 +203,14 @@ function chooseCheckIns(start, end, today, minNights) {
 }
 
 /**
- * Checks one watchdog in this order: choose dates, scrape, find stretches, dedup,
- * send one Slack message, write state. With no dates left, it stops after the
- * first step and returns `green`. With no stretch, it stops after the third.
+ * Checks one watchdog, in this order:
+ *
+ * 1. Choose dates. With none left, stop and return `green`.
+ * 2. Scrape.
+ * 3. Find stretches. With none, stop and return `green`.
+ * 4. Dedup against the alerted stretches in state.
+ * 5. Send one Slack message for the new stretches, if any.
+ * 6. Write state.
  *
  * An error in any step sends the Slack error message and returns `red`. A dry
  * run still scrapes and reads state, but it sends nothing and writes nothing.
@@ -158,16 +218,12 @@ function chooseCheckIns(start, end, today, minNights) {
  * @param {object} options
  * @param {Watchdog} options.watchdog
  * @param {string} options.today `YYYY-MM-DD`. The CLI passes today in UTC.
- * @param {Function} options.scrape Takes the property URL, check-in dates,
- *   adults, children and minimum nights, in that order. Returns
- *   `{ date, available }` for each date.
- * @param {{ read: Function, write: Function } | null} options.stateStore
- *   `read(id)` returns the state. `write(id, state)` takes the object `read`
- *   returned, because that object holds the Sheet row. `null` keeps no state,
- *   so each check treats every stretch as new.
+ * @param {Scrape} options.scrape
+ * @param {StateStore | null} options.stateStore `null` keeps no state, so each
+ *   check treats every stretch as new.
  * @param {string} options.webhookUrl Slack webhook. An empty string prints the
  *   messages instead.
- * @param {boolean} options.isDryRun
+ * @param {boolean} options.isDryRun `true` skips Slack and state writes.
  * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check,
  *   otherwise `green`.
  */
@@ -219,28 +275,28 @@ export async function runWatchdog({
 		const availCount = availability.filter((d) => d.available).length
 		console.log(`   Available dates: ${availCount}/${availability.length}`)
 
-		const runs = findConsecutiveRuns(availability, min_nights)
-		console.log(`   Qualifying runs (≥${min_nights} nights): ${runs.length}`)
+		const stretches = findStretches(availability, min_nights)
+		console.log(`   Stretches found: ${stretches.length}`)
 
-		if (runs.length === 0) {
-			console.log('   No qualifying runs found.')
+		if (stretches.length === 0) {
+			console.log('   No stretches found.')
 			return 'green'
 		}
 
-		let newRuns = runs
-		let state = { rowIndex: null, lastChecked: null, alertedRuns: [] }
+		let newStretches = stretches
+		let state = { rowIndex: null, lastChecked: null, alertedStretches: [] }
 
 		if (stateStore) {
 			state = await stateStore.read(id)
-			newRuns = deduplicateRuns(runs, state.alertedRuns)
+			newStretches = deduplicateStretches(stretches, state.alertedStretches)
 		}
 
-		if (newRuns.length === 0) {
-			console.log('   All runs already alerted.')
+		if (newStretches.length === 0) {
+			console.log('   All stretches already alerted.')
 			// Still write. This updates last_checked and drops alerted stretches
 			// that went away.
 			if (stateStore && !isDryRun) {
-				state.alertedRuns = runs
+				state.alertedStretches = stretches
 				await stateStore.write(id, state)
 			}
 			return 'green'
@@ -248,8 +304,10 @@ export async function runWatchdog({
 
 		if (isDryRun) {
 			console.log('[DRY RUN] Would send alert:')
-			for (const r of newRuns) {
-				console.log(`  ✅ ${r.start} → ${r.end} (${r.nights} nights)`)
+			for (const stretch of newStretches) {
+				console.log(
+					`  ✅ ${stretch.start} → ${stretch.end} (${stretch.nights} nights)`,
+				)
 			}
 		} else {
 			await sendAlert(
@@ -257,7 +315,7 @@ export async function runWatchdog({
 				id,
 				name,
 				property_url,
-				newRuns,
+				newStretches,
 				adults,
 				children,
 			)
@@ -265,9 +323,9 @@ export async function runWatchdog({
 		}
 
 		if (stateStore && !isDryRun) {
-			// Save every current stretch. Saving only newRuns would alert the
+			// Save every current stretch. Saving only newStretches would alert the
 			// others again.
-			state.alertedRuns = runs
+			state.alertedStretches = stretches
 			await stateStore.write(id, state)
 			console.log('   State updated.')
 		}
@@ -276,7 +334,8 @@ export async function runWatchdog({
 	} catch (err) {
 		console.error(`Error: ${err.message}`)
 		if (!isDryRun) {
-			// Slack may be what failed, so a second failure here changes nothing
+			// Slack may be what failed. The result is `red` either way, so a second
+			// failure changes nothing.
 			await sendError(webhookUrl, id, name, err.message).catch(() => {})
 		}
 		return 'red'
@@ -310,7 +369,8 @@ if (import.meta.main) {
 		process.exit(1)
 	}
 
-	// getAuth stays inside read and write, so a bad key reaches the Slack error path
+	// getAuth stays inside read and write, so a bad key throws inside
+	// `runWatchdog` and reaches the Slack error path
 	const stateStore = sheetId
 		? {
 				read: (watchdogId) => readState(sheetId, watchdogId, getAuth()),

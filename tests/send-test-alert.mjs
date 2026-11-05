@@ -13,8 +13,8 @@ await sendAlert(
 	'Hexenhäuschen 🧙‍♀️',
 	'https://www.booking.com/hotel/at/hexenhauschen.en-gb.html',
 	[
-		{ start: '2026-07-10', end: '2026-07-16', nights: 7 },
-		{ start: '2026-07-20', end: '2026-07-24', nights: 5 },
+		{ start: '2026-07-10', end: '2026-07-17', nights: 7 },
+		{ start: '2026-07-20', end: '2026-07-25', nights: 5 },
 	],
 	2,
 	0,

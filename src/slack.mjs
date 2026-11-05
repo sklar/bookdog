@@ -2,8 +2,6 @@
  * Sends the two Slack messages, one for new stretches and one for errors.
  */
 
-import { addDays } from './dates.mjs'
-
 /**
  * Builds the Booking link for one stay, with its dates and guests filled in.
  * These values replace any that `propertyUrl` already has.
@@ -54,7 +52,7 @@ function humanizeName(propertyUrl) {
  * @param {string | undefined} name Title of the message. Without one, the title
  *   comes from the URL.
  * @param {string} propertyUrl
- * @param {import('./check.mjs').Stretch[]} runs The new stretches.
+ * @param {import('./check.mjs').Stretch[]} stretches The new stretches.
  * @param {number} adults
  * @param {number} children
  * @returns {Promise<void>} Resolves after the send.
@@ -64,23 +62,22 @@ export async function sendAlert(
 	watchdogId,
 	name,
 	propertyUrl,
-	runs,
+	stretches,
 	adults,
 	children,
 ) {
 	const displayName = name || humanizeName(propertyUrl)
 
-	const runLines = runs
-		.map((r) => {
+	const stretchLines = stretches
+		.map((stretch) => {
 			const url = buildBookingUrl(
 				propertyUrl,
-				r.start,
-				// `end` is the last available date, and check-out is one day later
-				addDays(r.end, 1),
+				stretch.start,
+				stretch.end,
 				adults,
 				children,
 			)
-			return `• <${url}|${r.start} → ${r.end}> ${r.nights} nights`
+			return `• <${url}|${stretch.start} → ${stretch.end}> ${stretch.nights} nights`
 		})
 		.join('\n')
 
@@ -89,7 +86,7 @@ export async function sendAlert(
 		watchdogId,
 		'',
 		'Found availability:',
-		runLines,
+		stretchLines,
 	].join('\n')
 
 	if (!webhookUrl) {

@@ -15,20 +15,15 @@ const WATCHDOG = {
 	min_nights: 3,
 }
 
-const FIVE_NIGHTS = [
-	'2026-07-01',
-	'2026-07-02',
-	'2026-07-03',
-	'2026-07-04',
-	'2026-07-05',
-]
-const FIVE_NIGHT_RUN = { start: '2026-07-01', end: '2026-07-05', nights: 5 }
+// Free nights Jul 1 to 5. With a minimum of 3, these check-ins are available.
+const FIVE_NIGHT_CHECK_INS = ['2026-07-01', '2026-07-02', '2026-07-03']
+const FIVE_NIGHT_STRETCH = { start: '2026-07-01', end: '2026-07-06', nights: 5 }
 const STRETCH_MESSAGE = [
 	'*Test Property*',
 	'test-id',
 	'',
 	'Found availability:',
-	'• <https://www.booking.com/hotel/xx/test-property.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&no_rooms=1|2026-07-01 → 2026-07-05> 5 nights',
+	'• <https://www.booking.com/hotel/xx/test-property.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
 ].join('\n')
 
 function fakeScrape(availableDates = []) {
@@ -51,7 +46,7 @@ function memoryState(rows = {}) {
 			structuredClone(rows[id]) ?? {
 				rowIndex: null,
 				lastChecked: null,
-				alertedRuns: [],
+				alertedStretches: [],
 			},
 		write: async (id, state) => {
 			writes.push({ id, ...structuredClone(state) })
@@ -297,11 +292,11 @@ describe('stretches', () => {
 			'test-id': {
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [],
+				alertedStretches: [],
 			},
 		})
 		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHTS),
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
 		assert.equal(result, 'green')
@@ -311,8 +306,26 @@ describe('stretches', () => {
 				id: 'test-id',
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [FIVE_NIGHT_RUN],
+				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
+		])
+	})
+
+	it('free nights that match the minimum send a message with a link from start to end', async () => {
+		const stateStore = memoryState()
+		await run({
+			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
+			scrape: fakeScrape(['2026-07-10']),
+			stateStore,
+		})
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /\|2026-07-10 → 2026-07-13> 3 nights$/)
+		const [, href] = slackMessages[0].match(/<(.+)\|/)
+		const link = new URL(href)
+		assert.equal(link.searchParams.get('checkin'), '2026-07-10')
+		assert.equal(link.searchParams.get('checkout'), '2026-07-13')
+		assert.deepEqual(stateStore.writes[0].alertedStretches, [
+			{ start: '2026-07-10', end: '2026-07-13', nights: 3 },
 		])
 	})
 
@@ -321,11 +334,11 @@ describe('stretches', () => {
 			'test-id': {
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [FIVE_NIGHT_RUN],
+				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
 		})
 		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHTS),
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
 		assert.equal(result, 'green')
@@ -335,45 +348,37 @@ describe('stretches', () => {
 				id: 'test-id',
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [FIVE_NIGHT_RUN],
+				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
 		])
 	})
 
 	it('a message holds only the new stretch, and state keeps both', async () => {
-		const laterRun = { start: '2026-07-07', end: '2026-07-09', nights: 3 }
+		const laterStretch = { start: '2026-07-07', end: '2026-07-10', nights: 3 }
 		const stateStore = memoryState({
 			'test-id': {
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [FIVE_NIGHT_RUN],
+				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
 		})
 		await run({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-12' },
-			scrape: fakeScrape([
-				...FIVE_NIGHTS,
-				'2026-07-07',
-				'2026-07-08',
-				'2026-07-09',
-			]),
+			scrape: fakeScrape([...FIVE_NIGHT_CHECK_INS, '2026-07-07']),
 			stateStore,
 		})
 		assert.equal(slackMessages.length, 1)
-		assert.match(slackMessages[0], /2026-07-07 → 2026-07-09> 3 nights$/)
-		assert.doesNotMatch(slackMessages[0], /2026-07-01 → 2026-07-05/)
-		assert.deepEqual(stateStore.writes[0].alertedRuns, [
-			FIVE_NIGHT_RUN,
-			laterRun,
+		assert.match(slackMessages[0], /2026-07-07 → 2026-07-10> 3 nights$/)
+		assert.doesNotMatch(slackMessages[0], /2026-07-01 → 2026-07-06/)
+		assert.deepEqual(stateStore.writes[0].alertedStretches, [
+			FIVE_NIGHT_STRETCH,
+			laterStretch,
 		])
 	})
 
 	it('no stretch sends no message and writes no state', async () => {
 		const stateStore = memoryState()
-		const result = await run({
-			scrape: fakeScrape(['2026-07-01', '2026-07-02']),
-			stateStore,
-		})
+		const result = await run({ scrape: fakeScrape(), stateStore })
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [])
 		assert.deepEqual(stateStore.writes, [])
@@ -382,7 +387,7 @@ describe('stretches', () => {
 	it('a dry run skips Slack and state', async () => {
 		const stateStore = memoryState()
 		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHTS),
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 			isDryRun: true,
 		})
@@ -396,11 +401,11 @@ describe('stretches', () => {
 			'test-id': {
 				rowIndex: 7,
 				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedRuns: [FIVE_NIGHT_RUN],
+				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
 		})
 		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHTS),
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 			isDryRun: true,
 		})
@@ -431,7 +436,10 @@ describe('errors', () => {
 	it('a Slack failure on the stretch message counts as an error', async () => {
 		slackStatus = 500
 		const stateStore = memoryState()
-		const result = await run({ scrape: fakeScrape(FIVE_NIGHTS), stateStore })
+		const result = await run({
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
+			stateStore,
+		})
 		assert.equal(result, 'red')
 		assert.equal(slackMessages.length, 2)
 		assert.match(slackMessages[0], /Found availability:/)
@@ -445,7 +453,7 @@ describe('errors', () => {
 
 describe('local runs', () => {
 	it('with no state store, two checks send the stretch message twice', async () => {
-		const scrape = fakeScrape(FIVE_NIGHTS)
+		const scrape = fakeScrape(FIVE_NIGHT_CHECK_INS)
 		assert.equal(await run({ scrape, stateStore: null }), 'green')
 		assert.equal(await run({ scrape, stateStore: null }), 'green')
 		assert.equal(slackMessages.length, 2)
@@ -454,7 +462,7 @@ describe('local runs', () => {
 	it('with no webhook URL, prints the message and posts nothing', async (t) => {
 		const log = t.mock.method(console, 'log', () => {})
 		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHTS),
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			webhookUrl: '',
 		})
 		assert.equal(result, 'green')
