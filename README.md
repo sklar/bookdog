@@ -35,12 +35,13 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 ├── scripts/
 │   └── changeset.mjs     # interactive changeset CLI
 ├── src/
-│   ├── check.mjs         # main entrypoint
+│   ├── check.mjs         # main entrypoint, wires the real dependencies
 │   ├── config.mjs        # Google Sheet config reader
 │   ├── dates.mjs         # date arithmetic
 │   ├── scraper.mjs       # Playwright availability prober
 │   ├── slack.mjs         # Slack message formatting
-│   └── state.mjs         # dedup state read/write
+│   ├── state.mjs         # dedup state read/write
+│   └── watchdog.mjs      # logic for one watchdog
 ├── tests/
 │   └── fixtures/
 ├── biome.jsonc

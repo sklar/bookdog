@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { json } from 'node:stream/consumers'
 import { after, before, beforeEach, describe, it } from 'node:test'
-import { runWatchdog } from '../src/check.mjs'
+import { runWatchdog } from '../src/watchdog.mjs'
 
 const WATCHDOG = {
 	id: 'test-id',

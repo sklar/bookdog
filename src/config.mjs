@@ -51,7 +51,7 @@ function normalizeDate(val) {
  *
  * @param {string} sheetId The ID from the Sheet's URL.
  * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
- * @returns {Promise<import('./check.mjs').Watchdog[]>} Watchdogs in row order.
+ * @returns {Promise<import('./watchdog.mjs').Watchdog[]>} Watchdogs in row order.
  */
 export async function loadConfig(sheetId, auth) {
 	const sheets = google.sheets({ version: 'v4', auth })
