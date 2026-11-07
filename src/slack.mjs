@@ -52,7 +52,7 @@ function humanizeName(propertyUrl) {
  * @param {string | undefined} name Title of the message. Without one, the title
  *   comes from the URL.
  * @param {string} propertyUrl
- * @param {import('./check.mjs').Stretch[]} stretches The new stretches.
+ * @param {import('./watchdog.mjs').Stretch[]} stretches The new stretches.
  * @param {number} adults
  * @param {number} children
  * @returns {Promise<void>} Resolves after the send.

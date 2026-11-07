@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { deduplicateStretches, findStretches } from '../src/check.mjs'
+import { deduplicateStretches, findStretches } from '../src/watchdog.mjs'
 
 describe('findStretches', () => {
 	it('one available date makes a stretch: free nights Jul 10 to 12, minimum 3', () => {

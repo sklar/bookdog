@@ -15,7 +15,7 @@ import { google } from 'googleapis'
  * @property {number | null} rowIndex Sheet row, counted from 1. `null` when the
  *   watchdog has no row yet.
  * @property {string | null} lastChecked Time of the last write, ISO format.
- * @property {import('./check.mjs').Stretch[]} alertedStretches Stretches that
+ * @property {import('./watchdog.mjs').Stretch[]} alertedStretches Stretches that
  *   already had an alert.
  */
 
