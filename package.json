@@ -3,7 +3,7 @@
 	"description": "Booking.com availability watchdog — scrapes properties, alerts via Slack",
 	"version": "1.1.2",
 	"license": "PolyForm-Noncommercial-1.0.0",
-	"packageManager": "pnpm@10.29.3",
+	"packageManager": "pnpm@12.16.1",
 	"scripts": {
 		"changeset": "node scripts/changeset.mjs",
 		"check": "node src/check.mjs",
@@ -14,19 +14,14 @@
 		"test.alert": "node --env-file=.env tests/send-test-alert.mjs"
 	},
 	"dependencies": {
-		"googleapis": "171.4.0",
-		"playwright": "1.58.2"
+		"googleapis": "189.0.0",
+		"playwright": "1.64.1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.3.15",
-		"@clack/prompts": "1.1.0"
+		"@biomejs/biome": "2.6.4",
+		"@clack/prompts": "1.8.1"
 	},
 	"engines": {
-		"node": "20.20.0",
-		"pnpm": "10.29.3"
-	},
-	"volta": {
-		"node": "20.20.0",
-		"pnpm": "10.29.3"
+		"node": "26.13.0"
 	}
 }

@@ -5,11 +5,11 @@
 Booking.com availability watchdog — scrapes properties daily via GitHub Actions, detects consecutive available nights, alerts via Slack.
 
 - [Setup, usage and troubleshooting guide](GUIDE.md)
-- [Full specification](.claude/SPEC.md)
+- [Original build plan](docs/SPEC.md), kept for history
 
 ## 🧰 Stack
 
-- [Node 20](https://nodejs.org/) (ESM)
+- [Node 26](https://nodejs.org/) (ESM)
 - [Playwright](https://playwright.dev/) (browser automation)
 - [Google Sheets API](https://developers.google.com/sheets/api) (config & state)
 - Slack Incoming Webhooks (alerts)
@@ -20,23 +20,28 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 
 ```
 /
+├── .agents/rules/        # agent rules, imported by AGENTS.md
 ├── .changesets/          # changeset files for releases
 ├── .github/
 │   ├── renovate.json5
 │   ├── scripts/          # release helper scripts
 │   └── workflows/
 │       ├── check-availability.yml
+│       ├── cleanup.yml
 │       ├── integration-test.yml
 │       ├── pr.yml
 │       └── release.yml
+├── docs/                 # ADRs, agent docs, original build plan
 ├── scripts/
 │   └── changeset.mjs     # interactive changeset CLI
 ├── src/
-│   ├── check.mjs         # main entrypoint
+│   ├── check.mjs         # main entrypoint, wires the real dependencies
 │   ├── config.mjs        # Google Sheet config reader
+│   ├── dates.mjs         # date arithmetic
 │   ├── scraper.mjs       # Playwright availability prober
 │   ├── slack.mjs         # Slack message formatting
-│   └── state.mjs         # dedup state read/write
+│   ├── state.mjs         # dedup state read/write
+│   └── watchdog.mjs      # logic for one watchdog
 ├── tests/
 │   └── fixtures/
 ├── biome.jsonc

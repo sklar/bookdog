@@ -2,7 +2,7 @@
 
 ## 🧰 Stack
 
-- [Node 20](https://nodejs.org/) built-in test runner (`node:test`)
+- [Node 26](https://nodejs.org/) built-in test runner (`node:test`)
 - [Playwright](https://playwright.dev/) (scraper tests)
 
 ## 🧑‍🚀 Commands
@@ -16,8 +16,9 @@
 
 ```
 tests/
-├── logic.test.mjs        # consecutive-run + dedup logic
+├── logic.test.mjs        # stretch + dedup logic
 ├── scraper.test.mjs      # Playwright against local fixtures
+├── watchdog.test.mjs     # one watchdog: fake scrape, in-memory state, local Slack
 ├── send-test-alert.mjs   # dev util: send fake Slack alert
 ├── save-snapshot.mjs     # dev util: capture Booking.com fixture
 └── fixtures/
