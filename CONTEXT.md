@@ -18,7 +18,7 @@ _Avoid_: range, period
 A window with no check-in date that can still give a stay inside it.
 
 **Invalid window**:
-A window whose start is after its end, or with an impossible date.
+A window whose start is after its end, with an impossible date, or longer than 500 days.
 _Avoid_: typo
 
 **Stretch**:

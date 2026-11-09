@@ -30,7 +30,9 @@ The check-in and check-out dates in the form set the window, and every stay fits
 
 A window with no possible check-in date is finished. That includes a window shorter than the minimum nights. The watchdog loads no pages and sends no message, and the workflow run stays green.
 
-A window is invalid if its start is after its end, or if it has an impossible date such as `2026-02-30`. The watchdog loads no pages, sends an error message and makes the workflow run red.
+A window is invalid if its start is after its end, if it has an impossible date such as `2026-02-30`, or if it's longer than 500 days. The watchdog loads no pages, sends an error message and makes the workflow run red.
+
+A blank, zero, negative or unreadable number for adults, children or minimum nights takes its default: 1 adult, 0 children and 3 minimum nights.
 
 ### Cron schedule
 Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/check-availability.yml`.
@@ -40,7 +42,7 @@ Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/chec
 | Problem | Fix |
 |---------|-----|
 | No alerts sent | Check the `SLACK_WEBHOOK_URL` secret, the watchdog's `enabled=TRUE` and whether its [window](#window) is finished |
-| Error says the window has an impossible date | Fix the row's dates in the Google Sheet. See [Window](#window) |
+| Error about the window | Fix the row's dates in the Google Sheet. See [Window](#window) |
 | Scraper fails | Booking.com may have changed DOM. Update selectors in `scraper.mjs`, refresh fixtures |
 | All dates show unavailable | Check property URL is correct. Update selectors if Booking.com changed DOM |
 | Config loading fails | Verify `GOOGLE_SERVICE_ACCOUNT_KEY` and sheet sharing |

@@ -4,6 +4,11 @@
  * Google.
  */
 
+import {
+	DEFAULT_ADULTS,
+	DEFAULT_CHILDREN,
+	DEFAULT_MIN_NIGHTS,
+} from './constants.mjs'
 import { addDays, dateRange, daysBetween, isRealDate } from './dates.mjs'
 import { sendAlert, sendError } from './slack.mjs'
 
@@ -18,10 +23,13 @@ import { sendAlert, sendError } from './slack.mjs'
  * @property {string} checkin_date Start of the window, `YYYY-MM-DD`.
  * @property {string} checkout_date End of the window, `YYYY-MM-DD`. It's a
  *   check-out date.
- * @property {number} [adults] Defaults to 2.
- * @property {number} [children] Defaults to 0.
+ * @property {number} [adults] Adults in each search. Defaults to
+ *   `DEFAULT_ADULTS`.
+ * @property {number} [children] Children in each search. Defaults to
+ *   `DEFAULT_CHILDREN`.
  * @property {number} [min_nights] Length of the stay each check-in date asks
- *   about. Defaults to 3.
+ *   about. Defaults to `DEFAULT_MIN_NIGHTS`. Anything but a whole number of at
+ *   least 1 is an error.
  */
 
 /**
@@ -137,12 +145,26 @@ export function deduplicateStretches(currentStretches, alertedStretches) {
 }
 
 /**
+ * Longest window a watchdog may have, in days from start to end.
+ *
+ * Without a limit, a wrong year asks for thousands of pages. A window from
+ * 2026-07-01 that ends in 2036 instead of 2026 asks for 3660. By estimate, that
+ * takes longer than the job limit of 15 minutes.
+ */
+const MAX_WINDOW_DAYS = 500
+
+/**
  * Lists the check-in dates that can still give a stay inside the window. The
  * first is the later of `start` and `today`. The last is `end` minus
  * `minNights`.
  *
- * Throws for an invalid window, which is reversed or has an impossible date. An
- * invalid window isn't a finished window.
+ * Throws for an invalid window, which is reversed, has an impossible date or is
+ * longer than `MAX_WINDOW_DAYS`. A date not written as `YYYY-MM-DD` counts as
+ * impossible. An invalid window isn't a finished window, even when its dates
+ * are past.
+ *
+ * Also throws when `minNights` isn't a whole number of at least 1. With several
+ * problems, the first in this order decides the message.
  *
  * @param {string} start Start of the window, `YYYY-MM-DD`.
  * @param {string} end End of the window, `YYYY-MM-DD`. It's a check-out date.
@@ -152,12 +174,23 @@ export function deduplicateStretches(currentStretches, alertedStretches) {
  *   window is finished.
  */
 function chooseCheckIns(start, end, today, minNights) {
+	// These messages hold no dates or Sheet values, because error messages reach
+	// the public log
 	const isWindowValid = isRealDate(start) && isRealDate(end) && start <= end
 	if (!isWindowValid) {
-		// No dates in this text, because error messages reach the public log
 		throw new Error(
 			'The window has an impossible date, or its start is after its end.',
 		)
+	}
+
+	const isWindowTooLong = daysBetween(start, end) > MAX_WINDOW_DAYS
+	if (isWindowTooLong) {
+		throw new Error(`The window is longer than ${MAX_WINDOW_DAYS} days.`)
+	}
+
+	const isMinNightsValid = Number.isInteger(minNights) && minNights >= 1
+	if (!isMinNightsValid) {
+		throw new Error('The minimum nights must be a whole number of at least 1.')
 	}
 
 	const isTodayAfterStart = today > start
@@ -204,9 +237,9 @@ export async function runWatchdog({
 		property_url,
 		checkin_date,
 		checkout_date,
-		adults = 2,
-		children = 0,
-		min_nights = 3,
+		adults = DEFAULT_ADULTS,
+		children = DEFAULT_CHILDREN,
+		min_nights = DEFAULT_MIN_NIGHTS,
 	} = watchdog
 
 	console.log(`🐶 Bookdog — ${id}`)

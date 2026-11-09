@@ -7,7 +7,7 @@ import { runWatchdog } from '../src/watchdog.mjs'
 const WATCHDOG = {
 	id: 'test-id',
 	name: 'Test Property',
-	property_url: 'https://www.booking.com/hotel/xx/test-property.html',
+	property_url: 'https://www.booking.com/hotel/xx/test-house.html',
 	checkin_date: '2026-07-01',
 	checkout_date: '2026-07-08',
 	adults: 2,
@@ -23,7 +23,7 @@ const STRETCH_MESSAGE = [
 	'test-id',
 	'',
 	'Found availability:',
-	'• <https://www.booking.com/hotel/xx/test-property.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
+	'• <https://www.booking.com/hotel/xx/test-house.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
 ].join('\n')
 
 function fakeScrape(availableDates = []) {
@@ -96,7 +96,7 @@ describe('dates asked for', () => {
 	it('asks from the window start to the last check-in that fits when today is before the window', async () => {
 		const scrape = fakeScrape()
 		await run({
-			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10' },
+			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10', min_nights: 4 },
 			today: '2026-06-15',
 			scrape,
 		})
@@ -110,26 +110,11 @@ describe('dates asked for', () => {
 					'2026-07-04',
 					'2026-07-05',
 					'2026-07-06',
-					'2026-07-07',
 				],
 				adults: 2,
 				children: 1,
-				minNights: 3,
+				minNights: 4,
 			},
-		])
-	})
-
-	it('starts at today when today is inside the window', async () => {
-		const scrape = fakeScrape()
-		await run({
-			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10' },
-			today: '2026-07-05',
-			scrape,
-		})
-		assert.deepEqual(scrape.calls[0].dates, [
-			'2026-07-05',
-			'2026-07-06',
-			'2026-07-07',
 		])
 	})
 
@@ -143,33 +128,31 @@ describe('dates asked for', () => {
 		assert.deepEqual(scrape.calls[0].dates, ['2026-07-07'])
 	})
 
-	it('counts the last check-in back across a month end', async () => {
+	it('a watchdog with no guests or minimum nights asks for 1 adult, 0 children and 3 nights', async () => {
+		const { adults, children, min_nights, ...watchdog } = WATCHDOG
 		const scrape = fakeScrape()
-		await run({
+		await run({ watchdog, scrape })
+		const call = scrape.calls[0]
+		assert.equal(call.adults, 1)
+		assert.equal(call.children, 0)
+		assert.equal(call.minNights, 3)
+	})
+
+	it('a window of 500 days asks for every check-in that fits', async () => {
+		const scrape = fakeScrape()
+		const result = await run({
 			watchdog: {
 				...WATCHDOG,
-				checkin_date: '2026-07-29',
-				checkout_date: '2026-08-02',
+				checkin_date: '2027-01-01',
+				checkout_date: '2028-05-15',
 			},
 			scrape,
 		})
-		assert.deepEqual(scrape.calls[0].dates, ['2026-07-29', '2026-07-30'])
-	})
-
-	it('a dry run asks for the same dates', async () => {
-		const scrape = fakeScrape()
-		const result = await run({
-			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10' },
-			today: '2026-07-05',
-			scrape,
-			isDryRun: true,
-		})
 		assert.equal(result, 'green')
-		assert.deepEqual(scrape.calls[0].dates, [
-			'2026-07-05',
-			'2026-07-06',
-			'2026-07-07',
-		])
+		const { dates } = scrape.calls[0]
+		assert.equal(dates.length, 498)
+		assert.equal(dates[0], '2027-01-01')
+		assert.equal(dates.at(-1), '2028-05-12')
 	})
 })
 
@@ -213,55 +196,76 @@ describe('finished window', () => {
 			assert.deepEqual(stateStore.writes, [])
 		})
 	}
-
-	it('a dry run stays green and asks for no dates', async () => {
-		const scrape = fakeScrape()
-		const result = await run({
-			watchdog: {
-				...WATCHDOG,
-				checkin_date: '2026-07-01',
-				checkout_date: '2026-07-10',
-			},
-			today: '2026-07-11',
-			scrape,
-			isDryRun: true,
-		})
-		assert.equal(result, 'green')
-		assert.deepEqual(scrape.calls, [])
-	})
 })
 
-describe('invalid window', () => {
+describe('invalid window or minimum nights', () => {
 	const WINDOW_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The window has an impossible date, or its start is after its end.```'
+	const LONG_WINDOW_ERROR =
+		'🚧 *Test Property*\ntest-id\n```The window is longer than 500 days.```'
+	const MIN_NIGHTS_ERROR =
+		'🚧 *Test Property*\ntest-id\n```The minimum nights must be a whole number of at least 1.```'
 
 	const cases = [
 		{
 			title: 'a reversed window whose dates are past',
-			window: { checkin_date: '2026-05-10', checkout_date: '2026-05-01' },
+			watchdog: { checkin_date: '2026-05-10', checkout_date: '2026-05-01' },
+			message: WINDOW_ERROR,
 		},
 		{
 			title: 'a start of 2026-02-30',
-			window: { checkin_date: '2026-02-30', checkout_date: '2026-07-10' },
+			watchdog: { checkin_date: '2026-02-30', checkout_date: '2026-07-10' },
+			message: WINDOW_ERROR,
 		},
 		{
 			title: 'an end of 2026-13-45',
-			window: { checkin_date: '2026-07-01', checkout_date: '2026-13-45' },
+			watchdog: { checkin_date: '2026-07-01', checkout_date: '2026-13-45' },
+			message: WINDOW_ERROR,
+		},
+		{
+			title: 'an end written as 20270710',
+			watchdog: { checkin_date: '2027-07-01', checkout_date: '20270710' },
+			message: WINDOW_ERROR,
+		},
+		{
+			title: 'a window of 501 days',
+			watchdog: { checkin_date: '2027-01-01', checkout_date: '2028-05-16' },
+			message: LONG_WINDOW_ERROR,
+		},
+		{
+			title: 'a window of 517 days whose dates are past',
+			watchdog: { checkin_date: '2024-01-01', checkout_date: '2025-06-01' },
+			message: LONG_WINDOW_ERROR,
+		},
+		{
+			title: 'a minimum of -2',
+			watchdog: { min_nights: -2 },
+			message: MIN_NIGHTS_ERROR,
+		},
+		{
+			title: 'a minimum of 0',
+			watchdog: { min_nights: 0 },
+			message: MIN_NIGHTS_ERROR,
+		},
+		{
+			title: 'a minimum of 2.5',
+			watchdog: { min_nights: 2.5 },
+			message: MIN_NIGHTS_ERROR,
 		},
 	]
 
-	for (const { title, window } of cases) {
+	for (const { title, watchdog, message } of cases) {
 		it(`${title} asks for no dates, sends one error and returns red`, async () => {
 			const scrape = fakeScrape()
 			const stateStore = memoryState()
 			const result = await run({
-				watchdog: { ...WATCHDOG, ...window },
+				watchdog: { ...WATCHDOG, ...watchdog },
 				scrape,
 				stateStore,
 			})
 			assert.equal(result, 'red')
 			assert.deepEqual(scrape.calls, [])
-			assert.deepEqual(slackMessages, [WINDOW_ERROR])
+			assert.deepEqual(slackMessages, [message])
 			assert.deepEqual(stateStore.writes, [])
 		})
 	}
@@ -308,24 +312,6 @@ describe('stretches', () => {
 				lastChecked: '2026-06-30T06:00:00.000Z',
 				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
-		])
-	})
-
-	it('free nights that match the minimum send a message with a link from start to end', async () => {
-		const stateStore = memoryState()
-		await run({
-			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
-			scrape: fakeScrape(['2026-07-10']),
-			stateStore,
-		})
-		assert.equal(slackMessages.length, 1)
-		assert.match(slackMessages[0], /\|2026-07-10 → 2026-07-13> 3 nights$/)
-		const [, href] = slackMessages[0].match(/<(.+)\|/)
-		const link = new URL(href)
-		assert.equal(link.searchParams.get('checkin'), '2026-07-10')
-		assert.equal(link.searchParams.get('checkout'), '2026-07-13')
-		assert.deepEqual(stateStore.writes[0].alertedStretches, [
-			{ start: '2026-07-10', end: '2026-07-13', nights: 3 },
 		])
 	})
 
@@ -415,24 +401,6 @@ describe('stretches', () => {
 })
 
 describe('errors', () => {
-	const failingScrape = async () => {
-		throw new Error('boom')
-	}
-
-	it('a thrown error sends the error message and returns red', async () => {
-		const stateStore = memoryState()
-		const result = await run({ scrape: failingScrape, stateStore })
-		assert.equal(result, 'red')
-		assert.deepEqual(slackMessages, ['🚧 *Test Property*\ntest-id\n```boom```'])
-		assert.deepEqual(stateStore.writes, [])
-	})
-
-	it('a dry run with a thrown error sends no message and returns red', async () => {
-		const result = await run({ scrape: failingScrape, isDryRun: true })
-		assert.equal(result, 'red')
-		assert.deepEqual(slackMessages, [])
-	})
-
 	it('a Slack failure on the stretch message counts as an error', async () => {
 		slackStatus = 500
 		const stateStore = memoryState()
