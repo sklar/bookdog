@@ -5,6 +5,11 @@
 
 import { writeFileSync } from 'node:fs'
 import { google } from 'googleapis'
+import {
+	DEFAULT_ADULTS,
+	DEFAULT_CHILDREN,
+	DEFAULT_MIN_NIGHTS,
+} from './constants.mjs'
 
 /**
  * Builds the Google login from the `GOOGLE_SERVICE_ACCOUNT_KEY` JSON. It asks
@@ -42,12 +47,31 @@ function normalizeDate(val) {
 }
 
 /**
+ * Turns a number cell into a count. A blank, zero, negative or unreadable cell
+ * gives `fallback`.
+ *
+ * `parseInt` reads only the whole number at the start of the cell, so `2.5`
+ * gives 2.
+ *
+ * @param {string | undefined} val Cell text from the Sheet.
+ * @param {number} fallback Default from `constants.mjs`.
+ * @returns {number} A whole number of at least 1, or `fallback`.
+ */
+function normalizeCount(val, fallback) {
+	const count = parseInt(val, 10)
+	const isUsable = count > 0
+	return isUsable ? count : fallback
+}
+
+/**
  * Reads the enabled watchdogs from the `config` tab. Row 1 holds the headers.
  *
  * A row is enabled when its `enabled` cell is blank or TRUE, in any case. Any
  * other value pauses it. This function skips a row with no id, URL or readable
- * dates, and warns with the row number. A blank, zero or unreadable number takes
- * its default, which is 2 adults, 0 children or 3 minimum nights.
+ * dates, and warns with the row number.
+ *
+ * A blank, zero, negative or unreadable number cell takes its default from
+ * `constants.mjs`.
  *
  * @param {string} sheetId The ID from the Sheet's URL.
  * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
@@ -73,9 +97,9 @@ export async function loadConfig(sheetId, auth) {
 		const propertyUrl = (row[2] || '').trim()
 		const checkinDate = normalizeDate(row[3])
 		const checkoutDate = normalizeDate(row[4])
-		const adults = parseInt(row[5], 10) || 2
-		const children = parseInt(row[6], 10) || 0
-		const minNights = parseInt(row[7], 10) || 3
+		const adults = normalizeCount(row[5], DEFAULT_ADULTS)
+		const children = normalizeCount(row[6], DEFAULT_CHILDREN)
+		const minNights = normalizeCount(row[7], DEFAULT_MIN_NIGHTS)
 		const id = (row[8] || '').trim()
 		const enabled =
 			row[9] === undefined ||

@@ -3,6 +3,7 @@
  * Up to `CONCURRENCY` Playwright pages share the dates.
  */
 import { chromium } from 'playwright'
+import { DEFAULT_MIN_NIGHTS } from './constants.mjs'
 import { addDays } from './dates.mjs'
 
 // Pages open at once, to fit a long window inside the job timeout
@@ -121,7 +122,7 @@ async function checkDate(page, propertyUrl, date, adults, children, minNights) {
  * @param {number} adults
  * @param {number} children
  * @param {number} [minNights] Length of the stay each page asks about. Defaults
- *   to 1.
+ *   to `DEFAULT_MIN_NIGHTS`. `runWatchdog` always passes it.
  * @returns {Promise<{ date: string, available: boolean }[]>} One result per date,
  *   sorted by date.
  */
@@ -130,7 +131,7 @@ export async function scrapeAvailability(
 	dates,
 	adults,
 	children,
-	minNights = 1,
+	minNights = DEFAULT_MIN_NIGHTS,
 ) {
 	const browser = await chromium.launch({
 		headless: true,
