@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Grand Hotel Roma - Rows Without Prices</title></head>
+<body id="b2hotelPage">
+  <div id="hotelTmpl">
+    <h2 class="hp__hotel-name">Grand Hotel Roma</h2>
+    <!-- Room rows without a price cell, as after a redesign that renames the
+         cell. Booking has shown the no-availability message only on pages
+         without a room table. Next to these rows it proves nothing, and the
+         date is unknown. -->
+    <div id="no_availability_msg" class="highlight_msg no_availability_msg_light">
+      <div class="bui-alert bui-alert--error bui-alert--large" role="status">
+        <div class="bui-alert__description">
+          <span class="bui-alert__title">We have no availability here between Wed, Jul 1, 2026 and Sat, Jul 4, 2026.</span>
+        </div>
+      </div>
+    </div>
+    <table id="hprt-table" class="hprt-table">
+      <thead>
+        <tr class="hprt-table-header">
+          <th class="hprt-table-header-cell -first">Room type</th>
+          <th class="hprt-table-header-cell hprt-table-header-cell--occupancy">Number of guests</th>
+          <th class="hprt-table-header-cell hprt-table-header-price">Price for 3 nights</th>
+          <th class="hprt-table-header-cell hprt-table-header-policies">Your choices</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="js-rt-block-row e2e-hprt-table-row">
+          <td class="hprt-table-cell -first hprt-table-cell-roomtype">Deluxe Double Room</td>
+          <td class="hprt-table-cell hprt-table-cell-occupancy">Max. people: 2</td>
+          <td class="hprt-table-cell hprt-table-cell-total">€450</td>
+          <td class="hprt-table-cell hprt-table-cell-conditions">Free cancellation</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

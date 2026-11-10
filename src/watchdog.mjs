@@ -48,12 +48,15 @@ import { sendError, sendMissing, sendStretches } from './slack.mjs'
  */
 
 /**
- * What the scrape found for one check-in date.
+ * What the scrape found for one check-in date:
+ *
+ * - `available`: Booking offers a stay of the minimum nights from this date.
+ * - `sold-out`: the property page proves that it has no room for that stay.
+ * - `unknown`: the page failed, or the scraper didn't recognise it.
  *
  * @typedef {object} DateResult
  * @property {string} date `YYYY-MM-DD`.
- * @property {boolean} available `true` when Booking offers a stay of the
- *   minimum nights from this date.
+ * @property {'available' | 'sold-out' | 'unknown'} result
  */
 
 /**
@@ -109,24 +112,25 @@ function toStretch(checkIns, minNights) {
 /**
  * Finds each stretch. An available date means Booking offers a stay of
  * `minNights` from that date, so one available date already makes a stretch.
- * Any date that isn't available ends the sequence.
+ * A sold out or unknown date ends the sequence, so no stretch holds a night
+ * that nobody verified.
  *
  * With a minimum of 3 and free nights Jul 10 to 14, the check-ins of Jul 10, 11
  * and 12 are available. That gives Jul 10 to Jul 15, 5 nights.
  *
- * @param {DateResult[]} availability Check-in dates in any order, with no date
+ * @param {DateResult[]} dateResults Check-in dates in any order, with no date
  *   left out. A date that's left out doesn't end the sequence, so the gap
  *   joins the stretches on either side.
  * @param {number} minNights Length of the stay each date proves.
  * @returns {Stretch[]} Stretches in date order.
  */
-export function findStretches(availability, minNights) {
-	const sorted = [...availability].sort((a, b) => a.date.localeCompare(b.date))
+export function findStretches(dateResults, minNights) {
+	const sorted = [...dateResults].sort((a, b) => a.date.localeCompare(b.date))
 	const sequences = []
 	let sequence = null
 
-	for (const { date, available } of sorted) {
-		if (!available) {
+	for (const { date, result } of sorted) {
+		if (result !== 'available') {
 			sequence = null
 			continue
 		}
@@ -395,11 +399,14 @@ export async function runWatchdog({
 			return 'red'
 		}
 
-		const availability = scrapeResult.dateResults
-		const availCount = availability.filter((d) => d.available).length
-		console.log(`   Available dates: ${availCount}/${availability.length}`)
+		const { dateResults } = scrapeResult
+		const count = (result) =>
+			dateResults.filter((d) => d.result === result).length
+		console.log(
+			`   Dates checked: ${dateResults.length} — ${count('available')} available, ${count('sold-out')} sold out, ${count('unknown')} unknown`,
+		)
 
-		const stretches = findStretches(availability, min_nights)
+		const stretches = findStretches(dateResults, min_nights)
 		console.log(`   Stretches found: ${stretches.length}`)
 
 		const state = stateStore ? await stateStore.read(id) : null

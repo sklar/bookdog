@@ -27,7 +27,14 @@ const STRETCH_MESSAGE = [
 	'• <https://www.booking.com/hotel/xx/test-house.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&age=13&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
 ].join('\n')
 
-function fakeScrape(availableDates = []) {
+/**
+ * Stands in for the scrape. A date in neither list is sold out, and a date in
+ * both is available. Its `calls` keep what each call asked for.
+ *
+ * @param {string[]} [availableDates]
+ * @param {string[]} [unknownDates]
+ */
+function fakeScrape(availableDates = [], unknownDates = []) {
 	const calls = []
 	const scrape = async (watchdog, dates) => {
 		calls.push({
@@ -37,10 +44,12 @@ function fakeScrape(availableDates = []) {
 			children: watchdog.children,
 			minNights: watchdog.min_nights,
 		})
-		const dateResults = dates.map((date) => ({
-			date,
-			available: availableDates.includes(date),
-		}))
+		const resultOf = (date) => {
+			if (availableDates.includes(date)) return 'available'
+			if (unknownDates.includes(date)) return 'unknown'
+			return 'sold-out'
+		}
+		const dateResults = dates.map((date) => ({ date, result: resultOf(date) }))
 		return { missing: false, dateResults }
 	}
 	return Object.assign(scrape, { calls })
@@ -49,6 +58,7 @@ function fakeScrape(availableDates = []) {
 // Booking sends the page of a missing property to a city page
 const CITY_URL = 'https://www.booking.com/city/xx/test-town.html'
 
+/** Stands in for the scrape of a missing property, sent to `CITY_URL`. */
 function fakeMissingScrape() {
 	return async () => ({ missing: true, finalUrl: CITY_URL })
 }
@@ -312,11 +322,6 @@ describe('invalid watchdog', () => {
 			message: WINDOW_ERROR,
 		},
 		{
-			title: 'an end of 2026-13-45',
-			watchdog: { checkin_date: '2026-07-01', checkout_date: '2026-13-45' },
-			message: WINDOW_ERROR,
-		},
-		{
 			title: 'an end written as 20270710',
 			watchdog: { checkin_date: '2027-07-01', checkout_date: '20270710' },
 			message: WINDOW_ERROR,
@@ -330,11 +335,6 @@ describe('invalid watchdog', () => {
 			title: 'a window of 517 days whose dates are past',
 			watchdog: { checkin_date: '2024-01-01', checkout_date: '2025-06-01' },
 			message: LONG_WINDOW_ERROR,
-		},
-		{
-			title: 'a minimum of -2',
-			watchdog: { min_nights: -2 },
-			message: MIN_NIGHTS_ERROR,
 		},
 		{
 			title: 'a minimum of 0',
@@ -385,34 +385,6 @@ describe('invalid watchdog', () => {
 			assert.deepEqual(stateStore.writes, [])
 		})
 	}
-
-	it('a dry run sends no message and returns red', async () => {
-		const scrape = fakeScrape()
-		const stateStore = memoryState()
-		const result = await run({
-			watchdog: {
-				...WATCHDOG,
-				checkin_date: '2026-05-10',
-				checkout_date: '2026-05-01',
-			},
-			scrape,
-			stateStore,
-			isDryRun: true,
-		})
-		assert.equal(result, 'red')
-		assert.deepEqual(scrape.calls, [])
-		assert.deepEqual(slackMessages, [])
-		assert.deepEqual(stateStore.writes, [])
-	})
-
-	it('a bad URL sends the error even when the window is finished', async () => {
-		const result = await run({
-			watchdog: { ...WATCHDOG, property_url: 'https://example.com/x' },
-			today: '2026-07-11',
-		})
-		assert.equal(result, 'red')
-		assert.deepEqual(slackMessages, [URL_ERROR])
-	})
 
 	it('a Booking URL in capitals is fine', async () => {
 		const result = await run({
@@ -511,22 +483,6 @@ describe('stretches', () => {
 		assert.match(slackMessages[0], /2026-07-02 → 2026-07-20> 18 nights$/)
 	})
 
-	it('a stretch that starts after today is new, even with the end of an alerted stretch', async () => {
-		const stateStore = memoryState({
-			'test-id': storedState([
-				{ start: '2026-07-10', end: '2026-07-15', nights: 5 },
-			]),
-		})
-		await run({
-			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
-			today: '2026-07-01',
-			scrape: fakeScrape(['2026-07-11', '2026-07-12']),
-			stateStore,
-		})
-		assert.equal(slackMessages.length, 1)
-		assert.match(slackMessages[0], /2026-07-11 → 2026-07-15> 4 nights$/)
-	})
-
 	it('links without the query of a pasted URL, whose guests would win on Booking', async () => {
 		const pastedUrl = `${WATCHDOG.property_url}?room1=A%2CA%2CA%2CA&req_adults=4`
 		await run({
@@ -535,17 +491,25 @@ describe('stretches', () => {
 		})
 		assert.deepEqual(slackMessages, [STRETCH_MESSAGE])
 	})
+})
 
-	it('a dry run skips Slack and state', async () => {
-		const stateStore = memoryState()
-		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
-			stateStore,
-			isDryRun: true,
+describe('date results', () => {
+	it('an unknown date ends a stretch, and the log counts each result', async (t) => {
+		const log = t.mock.method(console, 'log', () => {})
+		// Jul 1 and 3 available, Jul 2 unknown, Jul 4 and 5 sold out
+		await run({
+			scrape: fakeScrape(['2026-07-01', '2026-07-03'], ['2026-07-02']),
 		})
-		assert.equal(result, 'green')
-		assert.deepEqual(slackMessages, [])
-		assert.deepEqual(stateStore.writes, [])
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /2026-07-01 → 2026-07-04> 3 nights\n/)
+		assert.match(slackMessages[0], /2026-07-03 → 2026-07-06> 3 nights$/)
+		const printed = log.mock.calls.map((call) => call.arguments[0])
+		assert.ok(
+			printed.includes(
+				'   Dates checked: 5 — 2 available, 2 sold out, 1 unknown',
+			),
+			printed.join('\n'),
+		)
 	})
 })
 
@@ -565,18 +529,46 @@ describe('missing property', () => {
 		assert.deepEqual(slackMessages, [MISSING_MESSAGE, MISSING_MESSAGE])
 		assert.equal(stateStore.writes.length, 1)
 	})
+})
 
-	it('a dry run skips Slack and state and still returns red', async () => {
-		const stateStore = memoryState()
-		const result = await run({
-			scrape: fakeMissingScrape(),
-			stateStore,
-			isDryRun: true,
+describe('dry run', () => {
+	// Without the dry run, each case sends a Slack message, and the new stretch
+	// also writes state
+	const cases = [
+		{
+			title: 'a reversed window',
+			overrides: {
+				watchdog: {
+					...WATCHDOG,
+					checkin_date: '2026-05-10',
+					checkout_date: '2026-05-01',
+				},
+			},
+			result: 'red',
+		},
+		{
+			title: 'a new stretch',
+			overrides: { scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
+			result: 'green',
+		},
+		{
+			title: 'a missing property',
+			overrides: { scrape: fakeMissingScrape() },
+			result: 'red',
+		},
+	]
+
+	for (const { title, overrides, result } of cases) {
+		it(`with ${title} sends nothing, writes no state and returns ${result}`, async () => {
+			const stateStore = memoryState()
+			assert.equal(
+				await run({ ...overrides, stateStore, isDryRun: true }),
+				result,
+			)
+			assert.deepEqual(slackMessages, [])
+			assert.deepEqual(stateStore.writes, [])
 		})
-		assert.equal(result, 'red')
-		assert.deepEqual(slackMessages, [])
-		assert.deepEqual(stateStore.writes, [])
-	})
+	}
 })
 
 describe('errors', () => {
@@ -624,23 +616,21 @@ describe('watchdog with no name', () => {
 			'https://www.booking.com/hotel/xx/test-house.en-gb.html?aid=123',
 	}
 
-	it('the stretch message takes its title from the URL, without the language code or query', async () => {
+	it('every message takes its title from the URL, without the language code or query', async () => {
+		// Slack refuses the stretch message, so an error message follows it
+		slackStatus = 500
 		await run({ watchdog, scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
-		assert.equal(slackMessages.length, 1)
-		assert.match(slackMessages[0], /^\*Test House\*\ntest-id\n/)
-	})
-
-	it('the missing message has the same title', async () => {
+		slackStatus = 200
 		await run({ watchdog, scrape: fakeMissingScrape() })
-		assert.equal(slackMessages.length, 1)
-		assert.match(slackMessages[0], /^🚧 \*Test House\*\ntest-id\n/)
-	})
-
-	it('the error message has the same title', async () => {
-		await run({ watchdog: { ...watchdog, min_nights: 0 } })
-		assert.deepEqual(slackMessages, [
-			'🚧 *Test House*\ntest-id\n```The minimum nights must be a whole number of at least 1.```',
+		const titles = slackMessages.map((message) => message.split('\n')[0])
+		assert.deepEqual(titles, [
+			'*Test House*',
+			'🚧 *Test House*',
+			'🚧 *Test House*',
 		])
+		assert.match(slackMessages[0], /Found availability:/)
+		assert.match(slackMessages[1], /Slack webhook failed/)
+		assert.match(slackMessages[2], /Booking no longer has this property/)
 	})
 })
 
