@@ -26,7 +26,8 @@ try {
  * the fixture file of the same path.
  *
  * @param {URL} url
- * @returns {{ redirect: string } | { file: string }} What to send.
+ * @returns {{ redirect: string } | { file: string } | { hangUp: true }} What
+ *   to send. `hangUp` closes the connection with no answer.
  */
 function route({ pathname, searchParams }) {
 	// A renamed property: Booking sends the old slug to the new one
@@ -38,14 +39,8 @@ function route({ pathname, searchParams }) {
 		const isFirstDate = searchParams.get('checkin') === '2026-07-01'
 		return { file: isFirstDate ? 'hotel/available.html' : 'hotel/missing.html' }
 	}
-	// Booking serves a `.de.html` page in German. A `lang` parameter sends it to
-	// the page of that language, here the English fixture of the same name.
-	if (pathname.endsWith('.de.html') && searchParams.get('lang') === 'en-gb') {
-		return { redirect: pathname.replace('.de.html', '.en-gb.html') }
-	}
-	if (pathname.endsWith('.en-gb.html')) {
-		return { file: pathname.slice(1).replace('.en-gb.html', '.html') }
-	}
+	// Closes the connection, so the page fails to load
+	if (pathname === '/hotel/hang-up.html') return { hangUp: true }
 	return { file: pathname.slice(1) }
 }
 
@@ -66,6 +61,10 @@ before(async () => {
 		requests.push(url)
 		userAgents.push(req.headers['user-agent'])
 		const answer = route(url)
+		if (answer.hangUp) {
+			req.socket.destroy()
+			return
+		}
 		if (answer.redirect) {
 			res.writeHead(301, { Location: answer.redirect })
 			res.end()
@@ -135,36 +134,90 @@ describe('scraper against fixtures', {
 	it('detects available rooms', async () => {
 		assert.deepEqual(await scrapeOneDate('available'), {
 			missing: false,
-			dateResults: [{ date: '2026-07-01', available: true }],
+			dateResults: [{ date: '2026-07-01', result: 'available' }],
 		})
 	})
 
-	it('detects sold out dates without waiting for a room table', async () => {
+	it('reads the no-availability message as sold out, without waiting for a room table', async () => {
 		const start = performance.now()
-		const result = await scrapeAvailability(
-			watchdogAt('/hotel/sold-out.html'),
-			['2026-07-01', '2026-07-02', '2026-07-03'],
-		)
+		const result = await scrapeOneDate('sold-out')
 		const seconds = (performance.now() - start) / 1000
-		assert.deepEqual(
-			result.dateResults.map(({ available }) => available),
-			[false, false, false],
-		)
-		// The wait for a room table that never comes takes 5 seconds a page
+		assert.deepEqual(result, {
+			missing: false,
+			dateResults: [{ date: '2026-07-01', result: 'sold-out' }],
+		})
+		// The wait for a room table that never comes takes 5 seconds
 		assert.ok(seconds < 5, `took ${seconds.toFixed(1)} s`)
 	})
 
-	it('reads a date as available when one room has a price and the others not', async () => {
+	it('reads a date as available when the last room has a price and the others not', async () => {
 		assert.deepEqual(await scrapeOneDate('partial-availability'), {
 			missing: false,
-			dateResults: [{ date: '2026-07-01', available: true }],
+			dateResults: [{ date: '2026-07-01', result: 'available' }],
 		})
 	})
 
-	it('reads a date as not available when every room says "not available"', async () => {
+	it('reads a date as sold out when every room says "not available"', async () => {
 		assert.deepEqual(await scrapeOneDate('all-rooms-unavailable'), {
 			missing: false,
-			dateResults: [{ date: '2026-07-01', available: false }],
+			dateResults: [{ date: '2026-07-01', result: 'sold-out' }],
+		})
+	})
+})
+
+describe('unknown dates', {
+	skip: !playwrightAvailable && 'Playwright not available',
+}, () => {
+	const unknownPages = [
+		{
+			page: 'a priced page under /hotel/ without the property mark',
+			fixture: 'no-mark',
+			reason: 'no property mark',
+		},
+		{
+			page: 'a property page with neither a room table nor the no-availability message',
+			fixture: 'no-room-table',
+			reason: 'no room table or no-availability message',
+		},
+		{
+			page: 'room rows without price cells next to the no-availability message',
+			fixture: 'rows-without-prices',
+			reason: 'room rows without price cells',
+		},
+		{
+			page: 'a page that fails to load',
+			fixture: 'hang-up',
+			reason: 'the page failed',
+		},
+	]
+
+	for (const { page, fixture, reason } of unknownPages) {
+		it(`reads ${page} as unknown, and logs why`, async (t) => {
+			const log = t.mock.method(console, 'log', () => {})
+			t.mock.method(console, 'warn', () => {})
+			assert.deepEqual(await scrapeOneDate(fixture), {
+				missing: false,
+				dateResults: [{ date: '2026-07-01', result: 'unknown' }],
+			})
+			const printed = log.mock.calls.map((call) => call.arguments[0])
+			assert.ok(
+				printed.includes(`  [1/1] 2026-07-01 — unknown, ${reason}`),
+				printed.join('\n'),
+			)
+		})
+	}
+
+	it('an unknown first date does not stop the scrape', async () => {
+		const result = await scrapeAvailability(watchdogAt('/hotel/no-mark.html'), [
+			'2026-07-01',
+			'2026-07-02',
+		])
+		assert.deepEqual(result, {
+			missing: false,
+			dateResults: [
+				{ date: '2026-07-01', result: 'unknown' },
+				{ date: '2026-07-02', result: 'unknown' },
+			],
 		})
 	})
 })
@@ -188,7 +241,7 @@ describe('missing property', {
 		assert.equal(hotelPageLoads(), 1)
 	})
 
-	it('a later date that settles outside /hotel/ is not available, and the property is not missing', async () => {
+	it('a later date that settles outside /hotel/ is unknown, and the property is not missing', async () => {
 		const result = await scrapeAvailability(
 			watchdogAt('/hotel/city-after-first.html'),
 			['2026-07-01', '2026-07-02'],
@@ -196,8 +249,8 @@ describe('missing property', {
 		assert.deepEqual(result, {
 			missing: false,
 			dateResults: [
-				{ date: '2026-07-01', available: true },
-				{ date: '2026-07-02', available: false },
+				{ date: '2026-07-01', result: 'available' },
+				{ date: '2026-07-02', result: 'unknown' },
 			],
 		})
 	})
@@ -205,7 +258,7 @@ describe('missing property', {
 	it('a renamed slug under /hotel/ is not missing', async () => {
 		assert.deepEqual(await scrapeOneDate('old-name'), {
 			missing: false,
-			dateResults: [{ date: '2026-07-01', available: true }],
+			dateResults: [{ date: '2026-07-01', result: 'available' }],
 		})
 	})
 })
@@ -232,6 +285,8 @@ describe('what each page asks Booking', {
 			['checkout', '2026-07-05'],
 			['group_adults', '3'],
 			['group_children', '2'],
+			// The scraper reads English text, so every page asks for English.
+			// Without `lang`, Booking serves a `.de.html` URL in German.
 			['lang', 'en-gb'],
 			['no_rooms', '1'],
 		])
@@ -248,12 +303,5 @@ describe('what each page asks Booking', {
 		assert.match(userAgent, new RegExp(` Chrome/${majorVersion}\\.0\\.0\\.0 `))
 		const system = process.platform === 'darwin' ? 'Macintosh' : 'Linux'
 		assert.match(userAgent, new RegExp(system))
-	})
-
-	it('reads the page in English when the URL asks for German', async () => {
-		assert.deepEqual(await scrapeOneDate('all-rooms-unavailable.de'), {
-			missing: false,
-			dateResults: [{ date: '2026-07-01', available: false }],
-		})
 	})
 })
