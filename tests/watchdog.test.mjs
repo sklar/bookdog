@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { json } from 'node:stream/consumers'
 import { after, before, beforeEach, describe, it } from 'node:test'
+import { dateRange } from '../src/dates.mjs'
 import { runWatchdog } from '../src/watchdog.mjs'
 
 const WATCHDOG = {
@@ -38,18 +39,31 @@ function fakeScrape(availableDates = []) {
 	return Object.assign(scrape, { calls })
 }
 
+/**
+ * Stands in for the state tab. A write replaces the watchdog's row, so the next
+ * check reads it, as on the Sheet. A watchdog with no row reads empty state.
+ *
+ * `reads` holds each object that `read` returned. `writes` holds a copy of each
+ * write, with its `id`.
+ */
 function memoryState(rows = {}) {
+	const reads = []
 	const writes = []
 	return {
+		reads,
 		writes,
-		read: async (id) =>
-			structuredClone(rows[id]) ?? {
+		read: async (id) => {
+			const state = structuredClone(rows[id]) ?? {
 				rowIndex: null,
 				lastChecked: null,
 				alertedStretches: [],
-			},
+			}
+			reads.push(state)
+			return state
+		},
 		write: async (id, state) => {
 			writes.push({ id, ...structuredClone(state) })
+			rows[id] = structuredClone(state)
 		},
 	}
 }
@@ -291,25 +305,24 @@ describe('invalid window or minimum nights', () => {
 })
 
 describe('stretches', () => {
-	it('a new stretch sends one message and writes state', async () => {
-		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [],
-			},
-		})
+	it('a new stretch sends one message and writes a new state', async () => {
+		const storedState = {
+			rowIndex: 7,
+			lastChecked: '2026-06-30T06:00:00.000Z',
+			alertedStretches: [],
+		}
+		const stateStore = memoryState({ 'test-id': structuredClone(storedState) })
 		const result = await run({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [STRETCH_MESSAGE])
+		assert.deepEqual(stateStore.reads, [storedState])
 		assert.deepEqual(stateStore.writes, [
 			{
 				id: 'test-id',
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
+				...storedState,
 				alertedStretches: [FIVE_NIGHT_STRETCH],
 			},
 		])
@@ -362,12 +375,67 @@ describe('stretches', () => {
 		])
 	})
 
-	it('no stretch sends no message and writes no state', async () => {
+	it('a stretch that goes away and comes back sends a second message', async () => {
+		const stateStore = memoryState({
+			'test-id': {
+				rowIndex: 7,
+				lastChecked: '2026-06-14T06:00:00.000Z',
+				alertedStretches: [],
+			},
+		})
+		const days = [
+			{ today: '2026-06-15', available: FIVE_NIGHT_CHECK_INS },
+			{ today: '2026-06-16', available: [] },
+			{ today: '2026-06-17', available: FIVE_NIGHT_CHECK_INS },
+		]
+		for (const { today, available } of days) {
+			const result = await run({
+				today,
+				scrape: fakeScrape(available),
+				stateStore,
+			})
+			assert.equal(result, 'green')
+		}
+		assert.deepEqual(slackMessages, [STRETCH_MESSAGE, STRETCH_MESSAGE])
+		assert.deepEqual(
+			stateStore.writes.map((write) => write.alertedStretches),
+			[[FIVE_NIGHT_STRETCH], [], [FIVE_NIGHT_STRETCH]],
+		)
+	})
+
+	it('a stretch that includes today sends one message as today moves', async () => {
 		const stateStore = memoryState()
-		const result = await run({ scrape: fakeScrape(), stateStore })
-		assert.equal(result, 'green')
-		assert.deepEqual(slackMessages, [])
-		assert.deepEqual(stateStore.writes, [])
+		for (const today of ['2026-07-02', '2026-07-03', '2026-07-04']) {
+			const result = await run({
+				watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
+				today,
+				scrape: fakeScrape(dateRange('2026-07-01', '2026-07-20')),
+				stateStore,
+			})
+			assert.equal(result, 'green')
+		}
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /2026-07-02 → 2026-07-20> 18 nights$/)
+	})
+
+	it('a stretch that starts after today is new, even with the end of an alerted stretch', async () => {
+		const stateStore = memoryState({
+			'test-id': {
+				rowIndex: 7,
+				lastChecked: '2026-06-30T06:00:00.000Z',
+				alertedStretches: [
+					{ start: '2026-07-10', end: '2026-07-15', nights: 5 },
+				],
+			},
+		})
+		await run({
+			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
+			today: '2026-07-01',
+			scrape: fakeScrape(['2026-07-11', '2026-07-12']),
+			stateStore,
+		})
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /2026-07-11 → 2026-07-15> 4 nights$/)
 	})
 
 	it('a dry run skips Slack and state', async () => {
@@ -379,23 +447,6 @@ describe('stretches', () => {
 		})
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [])
-		assert.deepEqual(stateStore.writes, [])
-	})
-
-	it('a dry run writes no state for an alerted stretch', async () => {
-		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [FIVE_NIGHT_STRETCH],
-			},
-		})
-		const result = await run({
-			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
-			stateStore,
-			isDryRun: true,
-		})
-		assert.equal(result, 'green')
 		assert.deepEqual(stateStore.writes, [])
 	})
 })
