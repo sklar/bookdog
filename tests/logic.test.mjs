@@ -68,22 +68,28 @@ describe('findStretches', () => {
 })
 
 describe('deduplicateStretches', () => {
-	it('filters out already-alerted stretches', () => {
-		const current = [
-			{ start: '2026-07-01', end: '2026-07-06', nights: 5 },
-			{ start: '2026-07-10', end: '2026-07-15', nights: 5 },
+	it('a stretch is new when it shares only its start, or only its end while a start is after today', () => {
+		const cases = [
+			{
+				current: { start: '2026-07-01', end: '2026-07-06', nights: 5 },
+				alerted: { start: '2026-07-01', end: '2026-07-05', nights: 4 },
+				today: '2026-06-15',
+			},
+			{
+				current: { start: '2026-07-05', end: '2026-07-20', nights: 15 },
+				alerted: { start: '2026-07-02', end: '2026-07-20', nights: 18 },
+				today: '2026-07-03',
+			},
+			{
+				current: { start: '2026-07-12', end: '2026-07-15', nights: 3 },
+				alerted: { start: '2026-07-13', end: '2026-07-15', nights: 2 },
+				today: '2026-07-12',
+			},
 		]
-		const alerted = [{ start: '2026-07-01', end: '2026-07-06', nights: 5 }]
-		const newStretches = deduplicateStretches(current, alerted)
-		assert.equal(newStretches.length, 1)
-		assert.equal(newStretches[0].start, '2026-07-10')
-	})
-
-	it('a stretch that shares only its start or its end is new', () => {
-		const current = [{ start: '2026-07-01', end: '2026-07-06', nights: 5 }]
-		const sameStart = { start: '2026-07-01', end: '2026-07-05', nights: 5 }
-		const sameEnd = { start: '2026-07-02', end: '2026-07-06', nights: 4 }
-		assert.deepEqual(deduplicateStretches(current, [sameStart]), current)
-		assert.deepEqual(deduplicateStretches(current, [sameEnd]), current)
+		for (const { current, alerted, today } of cases) {
+			assert.deepEqual(deduplicateStretches([current], [alerted], today), [
+				current,
+			])
+		}
 	})
 })

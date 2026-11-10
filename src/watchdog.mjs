@@ -76,8 +76,8 @@ import { sendAlert, sendError } from './slack.mjs'
  * @property {(id: string) => Promise<State>} read Returns the state of one
  *   watchdog.
  * @property {(id: string, state: State) => Promise<void>} write Saves the
- *   state. It takes the object `read` returned, because that object holds the
- *   Sheet row.
+ *   state. Pass a copy of what `read` returned, with new `alertedStretches`.
+ *   The copy keeps `rowIndex`, so the write updates the watchdog's own row.
  */
 
 /**
@@ -127,19 +127,53 @@ export function findStretches(availability, minNights) {
 }
 
 /**
- * Keeps the stretches that have no alert yet. An alerted stretch matches when
- * `start` and `end` are both equal.
+ * Tells whether `current` is the same stretch as `alerted`, which already had
+ * its Slack message. They match when `start` and `end` are both equal.
+ *
+ * A stretch that includes today needs one more rule. It starts today, because
+ * the first check-in is never before today, so its `start` moves forward each
+ * day. It matches on the same `end` when both starts are today or earlier. A
+ * stretch alerted on Jul 2 as Jul 2 to Jul 20 shows up on Jul 3 as Jul 3 to
+ * Jul 20, and matches.
+ *
+ * A different `start` after today means a new stretch. On Jul 1, Jul 11 to
+ * Jul 15 doesn't match an alerted Jul 10 to Jul 15, because Jul 10 is no longer
+ * available.
+ *
+ * @param {Stretch} current Stretch found by this check.
+ * @param {Stretch} alerted Stretch from state.
+ * @param {string} today `YYYY-MM-DD`.
+ * @returns {boolean} `true` when both are the same stretch.
+ */
+function isSameStretch(current, alerted, today) {
+	if (current.end !== alerted.end) return false
+	if (current.start === alerted.start) return true
+
+	const isBothStartedByToday = current.start <= today && alerted.start <= today
+	return isBothStartedByToday
+}
+
+/**
+ * Keeps the stretches that had no Slack message yet. `isSameStretch` decides
+ * whether an alerted stretch matches.
  *
  * @param {Stretch[]} currentStretches Stretches found by this check.
  * @param {Stretch[]} alertedStretches Stretches from state, which already had
- *   an alert.
- * @returns {Stretch[]} The new stretches.
+ *   their Slack message.
+ * @param {string} today `YYYY-MM-DD`. A stretch that includes today starts on
+ *   this date.
+ * @returns {Stretch[]} The new stretches, in their order in
+ *   `currentStretches`.
  */
-export function deduplicateStretches(currentStretches, alertedStretches) {
+export function deduplicateStretches(
+	currentStretches,
+	alertedStretches,
+	today,
+) {
 	return currentStretches.filter(
-		(stretch) =>
-			!alertedStretches.some(
-				(a) => a.start === stretch.start && a.end === stretch.end,
+		(current) =>
+			!alertedStretches.some((alerted) =>
+				isSameStretch(current, alerted, today),
 			),
 	)
 }
@@ -203,10 +237,12 @@ function chooseCheckIns(start, end, today, minNights) {
  *
  * 1. Choose dates. With none left, stop and return `green`.
  * 2. Scrape.
- * 3. Find stretches. With none, stop and return `green`.
+ * 3. Find stretches.
  * 4. Dedup against the alerted stretches in state.
  * 5. Send one Slack message for the new stretches, if any.
- * 6. Write state.
+ * 6. Write state, even with no stretches. The current stretches replace the
+ *    alerted ones. A stretch that went away leaves state, so it gets a new
+ *    Slack message when it comes back.
  *
  * An error in any step sends the Slack error message and returns `red`. A dry
  * run still scrapes and reads state, but it sends nothing and writes nothing.
@@ -274,31 +310,19 @@ export async function runWatchdog({
 		const stretches = findStretches(availability, min_nights)
 		console.log(`   Stretches found: ${stretches.length}`)
 
+		const state = stateStore ? await stateStore.read(id) : null
+		const alertedStretches = state ? state.alertedStretches : []
+		const newStretches = deduplicateStretches(
+			stretches,
+			alertedStretches,
+			today,
+		)
+
 		if (stretches.length === 0) {
 			console.log('   No stretches found.')
-			return 'green'
-		}
-
-		let newStretches = stretches
-		let state = { rowIndex: null, lastChecked: null, alertedStretches: [] }
-
-		if (stateStore) {
-			state = await stateStore.read(id)
-			newStretches = deduplicateStretches(stretches, state.alertedStretches)
-		}
-
-		if (newStretches.length === 0) {
+		} else if (newStretches.length === 0) {
 			console.log('   All stretches already alerted.')
-			// Still write. This updates last_checked and drops alerted stretches
-			// that went away.
-			if (stateStore && !isDryRun) {
-				state.alertedStretches = stretches
-				await stateStore.write(id, state)
-			}
-			return 'green'
-		}
-
-		if (isDryRun) {
+		} else if (isDryRun) {
 			console.log('[DRY RUN] Would send alert:')
 			for (const stretch of newStretches) {
 				console.log(
@@ -318,14 +342,11 @@ export async function runWatchdog({
 			console.log('   Slack alert sent!')
 		}
 
-		if (stateStore && !isDryRun) {
-			// Save every current stretch. Saving only newStretches would alert the
-			// others again.
-			state.alertedStretches = stretches
-			await stateStore.write(id, state)
-			console.log('   State updated.')
-		}
+		const shouldWriteState = stateStore && !isDryRun
+		if (!shouldWriteState) return 'green'
 
+		await stateStore.write(id, { ...state, alertedStretches: stretches })
+		console.log('   State updated.')
 		return 'green'
 	} catch (err) {
 		console.error(`Error: ${err.message}`)

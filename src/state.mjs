@@ -56,7 +56,7 @@ export async function readState(sheetId, watchdogId, auth) {
  *
  * @param {string} sheetId The ID from the Sheet's URL.
  * @param {string} watchdogId
- * @param {State} state The object `readState` returned, with new
+ * @param {State} state A copy of what `readState` returned, with new
  *   `alertedStretches`.
  * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
  * @returns {Promise<void>} Resolves after the write.

@@ -34,6 +34,9 @@ A window is invalid if its start is after its end, if it has an impossible date 
 
 A blank, zero, negative or unreadable number for adults, children or minimum nights takes its default: 1 adult, 0 children and 3 minimum nights.
 
+### Alerts
+The watchdog sends one Slack message for each stretch, even if the stretch stays free for weeks. If one workflow run doesn't find the stretch and a later one does, the watchdog sends another.
+
 ### Cron schedule
 Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/check-availability.yml`.
 
@@ -46,7 +49,7 @@ Daily between 7:00–8:00 CET (randomized). Edit cron in `.github/workflows/chec
 | Scraper fails | Booking.com may have changed DOM. Update selectors in `scraper.mjs`, refresh fixtures |
 | All dates show unavailable | Check property URL is correct. Update selectors if Booking.com changed DOM |
 | Config loading fails | Verify `GOOGLE_SERVICE_ACCOUNT_KEY` and sheet sharing |
-| Duplicate alerts | State tab may be corrupted. Check `state` tab in Google Sheet |
+| Duplicate alerts | Expected if a stretch went away and came back. See [Alerts](#alerts). Otherwise check the watchdog's row in the `state` tab of the Google Sheet |
 | Can't see workflow run logs | `cleanup.yml` deletes successful workflow runs, logs included. Failed workflow runs stay, so you can debug them |
 
 ## 💰 Free tier budget
