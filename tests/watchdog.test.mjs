@@ -24,20 +24,41 @@ const STRETCH_MESSAGE = [
 	'test-id',
 	'',
 	'Found availability:',
-	'• <https://www.booking.com/hotel/xx/test-house.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
+	'• <https://www.booking.com/hotel/xx/test-house.html?checkin=2026-07-01&checkout=2026-07-06&group_adults=2&group_children=1&age=13&no_rooms=1|2026-07-01 → 2026-07-06> 5 nights',
 ].join('\n')
 
 function fakeScrape(availableDates = []) {
 	const calls = []
-	const scrape = async (propertyUrl, dates, adults, children, minNights) => {
-		calls.push({ propertyUrl, dates, adults, children, minNights })
-		return dates.map((date) => ({
+	const scrape = async (watchdog, dates) => {
+		calls.push({
+			propertyUrl: watchdog.property_url,
+			dates,
+			adults: watchdog.adults,
+			children: watchdog.children,
+			minNights: watchdog.min_nights,
+		})
+		const dateResults = dates.map((date) => ({
 			date,
 			available: availableDates.includes(date),
 		}))
+		return { missing: false, dateResults }
 	}
 	return Object.assign(scrape, { calls })
 }
+
+// Booking sends the page of a missing property to a city page
+const CITY_URL = 'https://www.booking.com/city/xx/test-town.html'
+
+function fakeMissingScrape() {
+	return async () => ({ missing: true, finalUrl: CITY_URL })
+}
+
+const MISSING_MESSAGE = [
+	'🚧 *Test Property*',
+	'test-id',
+	'Booking no longer has this property. It sends visitors to <https://www.booking.com/city/xx/test-town.html>.',
+	'To stop this message, set enabled=FALSE in the Sheet.',
+].join('\n')
 
 /**
  * Stands in for the state tab. A write replaces the watchdog's row, so the next
@@ -65,6 +86,19 @@ function memoryState(rows = {}) {
 			writes.push({ id, ...structuredClone(state) })
 			rows[id] = structuredClone(state)
 		},
+	}
+}
+
+/**
+ * Builds the state row of a watchdog that an earlier workflow run checked.
+ *
+ * @param {object[]} alertedStretches
+ */
+function storedState(alertedStretches) {
+	return {
+		rowIndex: 7,
+		lastChecked: '2026-06-01T06:00:00.000Z',
+		alertedStretches,
 	}
 }
 
@@ -142,14 +176,18 @@ describe('dates asked for', () => {
 		assert.deepEqual(scrape.calls[0].dates, ['2026-07-07'])
 	})
 
-	it('a watchdog with no guests or minimum nights asks for 1 adult, 0 children and 3 nights', async () => {
+	it('a watchdog with no guests or minimum nights asks for and links to 1 adult, 0 children and 3 nights', async () => {
 		const { adults, children, min_nights, ...watchdog } = WATCHDOG
-		const scrape = fakeScrape()
+		const scrape = fakeScrape(['2026-07-01'])
 		await run({ watchdog, scrape })
 		const call = scrape.calls[0]
 		assert.equal(call.adults, 1)
 		assert.equal(call.children, 0)
 		assert.equal(call.minNights, 3)
+		assert.match(
+			slackMessages[0],
+			/checkin=2026-07-01&checkout=2026-07-04&group_adults=1&group_children=0&/,
+		)
 	})
 
 	it('a window of 500 days asks for every check-in that fits', async () => {
@@ -212,15 +250,57 @@ describe('finished window', () => {
 	}
 })
 
-describe('invalid window or minimum nights', () => {
+describe('invalid watchdog', () => {
+	const URL_ERROR =
+		'🚧 *Test Property*\ntest-id\n```The property URL must start with https://www.booking.com/hotel/.```'
 	const WINDOW_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The window has an impossible date, or its start is after its end.```'
 	const LONG_WINDOW_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The window is longer than 500 days.```'
 	const MIN_NIGHTS_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The minimum nights must be a whole number of at least 1.```'
+	// Only a watchdog passed in directly can have these. `config.mjs` gives a bad
+	// Sheet cell its default.
+	const ADULTS_ERROR =
+		'🚧 *Test Property*\ntest-id\n```The number of adults must be a whole number of at least 1.```'
+	const CHILDREN_ERROR =
+		'🚧 *Test Property*\ntest-id\n```The number of children must be a whole number of at least 0.```'
 
 	const cases = [
+		{
+			title: 'a URL on another site',
+			watchdog: {
+				property_url: 'https://example.com/hotel/xx/test-house.html',
+			},
+			message: URL_ERROR,
+		},
+		{
+			title: 'a host that only starts like Booking',
+			watchdog: {
+				property_url:
+					'https://www.booking.com.example.com/hotel/xx/test-house.html',
+			},
+			message: URL_ERROR,
+		},
+		{
+			title: 'a URL without https',
+			watchdog: {
+				property_url: 'http://www.booking.com/hotel/xx/test-house.html',
+			},
+			message: URL_ERROR,
+		},
+		{
+			title: 'a city page',
+			watchdog: {
+				property_url: 'https://www.booking.com/city/xx/test-town.html',
+			},
+			message: URL_ERROR,
+		},
+		{
+			title: 'text that is no URL',
+			watchdog: { property_url: 'test house' },
+			message: URL_ERROR,
+		},
 		{
 			title: 'a reversed window whose dates are past',
 			watchdog: { checkin_date: '2026-05-10', checkout_date: '2026-05-01' },
@@ -266,6 +346,28 @@ describe('invalid window or minimum nights', () => {
 			watchdog: { min_nights: 2.5 },
 			message: MIN_NIGHTS_ERROR,
 		},
+		{ title: '0 adults', watchdog: { adults: 0 }, message: ADULTS_ERROR },
+		{ title: '2.5 adults', watchdog: { adults: 2.5 }, message: ADULTS_ERROR },
+		{
+			title: 'adults of null',
+			watchdog: { adults: null },
+			message: ADULTS_ERROR,
+		},
+		{
+			title: '-1 children',
+			watchdog: { children: -1 },
+			message: CHILDREN_ERROR,
+		},
+		{
+			title: '1.5 children',
+			watchdog: { children: 1.5 },
+			message: CHILDREN_ERROR,
+		},
+		{
+			title: 'children of null',
+			watchdog: { children: null },
+			message: CHILDREN_ERROR,
+		},
 	]
 
 	for (const { title, watchdog, message } of cases) {
@@ -302,39 +404,45 @@ describe('invalid window or minimum nights', () => {
 		assert.deepEqual(slackMessages, [])
 		assert.deepEqual(stateStore.writes, [])
 	})
+
+	it('a bad URL sends the error even when the window is finished', async () => {
+		const result = await run({
+			watchdog: { ...WATCHDOG, property_url: 'https://example.com/x' },
+			today: '2026-07-11',
+		})
+		assert.equal(result, 'red')
+		assert.deepEqual(slackMessages, [URL_ERROR])
+	})
+
+	it('a Booking URL in capitals is fine', async () => {
+		const result = await run({
+			watchdog: {
+				...WATCHDOG,
+				property_url: 'HTTPS://WWW.BOOKING.COM/hotel/xx/test-house.html',
+			},
+		})
+		assert.equal(result, 'green')
+	})
 })
 
 describe('stretches', () => {
 	it('a new stretch sends one message and writes a new state', async () => {
-		const storedState = {
-			rowIndex: 7,
-			lastChecked: '2026-06-30T06:00:00.000Z',
-			alertedStretches: [],
-		}
-		const stateStore = memoryState({ 'test-id': structuredClone(storedState) })
+		const stateStore = memoryState({ 'test-id': storedState([]) })
 		const result = await run({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [STRETCH_MESSAGE])
-		assert.deepEqual(stateStore.reads, [storedState])
+		assert.deepEqual(stateStore.reads, [storedState([])])
 		assert.deepEqual(stateStore.writes, [
-			{
-				id: 'test-id',
-				...storedState,
-				alertedStretches: [FIVE_NIGHT_STRETCH],
-			},
+			{ id: 'test-id', ...storedState([FIVE_NIGHT_STRETCH]) },
 		])
 	})
 
 	it('an alerted stretch sends no message and still writes state', async () => {
 		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [FIVE_NIGHT_STRETCH],
-			},
+			'test-id': storedState([FIVE_NIGHT_STRETCH]),
 		})
 		const result = await run({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
@@ -343,23 +451,14 @@ describe('stretches', () => {
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [])
 		assert.deepEqual(stateStore.writes, [
-			{
-				id: 'test-id',
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [FIVE_NIGHT_STRETCH],
-			},
+			{ id: 'test-id', ...storedState([FIVE_NIGHT_STRETCH]) },
 		])
 	})
 
 	it('a message holds only the new stretch, and state keeps both', async () => {
 		const laterStretch = { start: '2026-07-07', end: '2026-07-10', nights: 3 }
 		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [FIVE_NIGHT_STRETCH],
-			},
+			'test-id': storedState([FIVE_NIGHT_STRETCH]),
 		})
 		await run({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-12' },
@@ -376,13 +475,7 @@ describe('stretches', () => {
 	})
 
 	it('a stretch that goes away and comes back sends a second message', async () => {
-		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-14T06:00:00.000Z',
-				alertedStretches: [],
-			},
-		})
+		const stateStore = memoryState({ 'test-id': storedState([]) })
 		const days = [
 			{ today: '2026-06-15', available: FIVE_NIGHT_CHECK_INS },
 			{ today: '2026-06-16', available: [] },
@@ -420,13 +513,9 @@ describe('stretches', () => {
 
 	it('a stretch that starts after today is new, even with the end of an alerted stretch', async () => {
 		const stateStore = memoryState({
-			'test-id': {
-				rowIndex: 7,
-				lastChecked: '2026-06-30T06:00:00.000Z',
-				alertedStretches: [
-					{ start: '2026-07-10', end: '2026-07-15', nights: 5 },
-				],
-			},
+			'test-id': storedState([
+				{ start: '2026-07-10', end: '2026-07-15', nights: 5 },
+			]),
 		})
 		await run({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
@@ -438,6 +527,15 @@ describe('stretches', () => {
 		assert.match(slackMessages[0], /2026-07-11 → 2026-07-15> 4 nights$/)
 	})
 
+	it('links without the query of a pasted URL, whose guests would win on Booking', async () => {
+		const pastedUrl = `${WATCHDOG.property_url}?room1=A%2CA%2CA%2CA&req_adults=4`
+		await run({
+			watchdog: { ...WATCHDOG, property_url: pastedUrl },
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
+		})
+		assert.deepEqual(slackMessages, [STRETCH_MESSAGE])
+	})
+
 	it('a dry run skips Slack and state', async () => {
 		const stateStore = memoryState()
 		const result = await run({
@@ -446,6 +544,36 @@ describe('stretches', () => {
 			isDryRun: true,
 		})
 		assert.equal(result, 'green')
+		assert.deepEqual(slackMessages, [])
+		assert.deepEqual(stateStore.writes, [])
+	})
+})
+
+describe('missing property', () => {
+	it('sends the missing message each day, writes no state and returns red until Booking lists the property again', async () => {
+		const stateStore = memoryState()
+		const days = [
+			{ today: '2026-06-15', scrape: fakeMissingScrape() },
+			{ today: '2026-06-16', scrape: fakeMissingScrape() },
+			{ today: '2026-06-17', scrape: fakeScrape() },
+		]
+		const results = []
+		for (const { today, scrape } of days) {
+			results.push(await run({ today, scrape, stateStore }))
+		}
+		assert.deepEqual(results, ['red', 'red', 'green'])
+		assert.deepEqual(slackMessages, [MISSING_MESSAGE, MISSING_MESSAGE])
+		assert.equal(stateStore.writes.length, 1)
+	})
+
+	it('a dry run skips Slack and state and still returns red', async () => {
+		const stateStore = memoryState()
+		const result = await run({
+			scrape: fakeMissingScrape(),
+			stateStore,
+			isDryRun: true,
+		})
+		assert.equal(result, 'red')
 		assert.deepEqual(slackMessages, [])
 		assert.deepEqual(stateStore.writes, [])
 	})
@@ -467,6 +595,52 @@ describe('errors', () => {
 			'🚧 *Test Property*\ntest-id\n```Slack webhook failed: 500 nope```',
 		)
 		assert.deepEqual(stateStore.writes, [])
+	})
+
+	it('a Slack failure on the missing message counts as an error', async () => {
+		slackStatus = 500
+		const result = await run({ scrape: fakeMissingScrape() })
+		assert.equal(result, 'red')
+		assert.deepEqual(slackMessages, [
+			MISSING_MESSAGE,
+			'🚧 *Test Property*\ntest-id\n```Slack webhook failed: 500 nope```',
+		])
+	})
+
+	it('an unreachable Slack returns red', async () => {
+		const result = await run({
+			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
+			webhookUrl: 'http://127.0.0.1:1',
+		})
+		assert.equal(result, 'red')
+	})
+})
+
+describe('watchdog with no name', () => {
+	const { name, ...unnamed } = WATCHDOG
+	const watchdog = {
+		...unnamed,
+		property_url:
+			'https://www.booking.com/hotel/xx/test-house.en-gb.html?aid=123',
+	}
+
+	it('the stretch message takes its title from the URL, without the language code or query', async () => {
+		await run({ watchdog, scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /^\*Test House\*\ntest-id\n/)
+	})
+
+	it('the missing message has the same title', async () => {
+		await run({ watchdog, scrape: fakeMissingScrape() })
+		assert.equal(slackMessages.length, 1)
+		assert.match(slackMessages[0], /^🚧 \*Test House\*\ntest-id\n/)
+	})
+
+	it('the error message has the same title', async () => {
+		await run({ watchdog: { ...watchdog, min_nights: 0 } })
+		assert.deepEqual(slackMessages, [
+			'🚧 *Test House*\ntest-id\n```The minimum nights must be a whole number of at least 1.```',
+		])
 	})
 })
 
