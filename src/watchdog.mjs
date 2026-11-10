@@ -4,13 +4,14 @@
  * Google.
  */
 
+import { isPropertyUrl, PROPERTY_URL_START } from './booking.mjs'
 import {
 	DEFAULT_ADULTS,
 	DEFAULT_CHILDREN,
 	DEFAULT_MIN_NIGHTS,
 } from './constants.mjs'
 import { addDays, dateRange, daysBetween, isRealDate } from './dates.mjs'
-import { sendAlert, sendError } from './slack.mjs'
+import { sendError, sendMissing, sendStretches } from './slack.mjs'
 
 /**
  * One row of the Sheet, as the CLI reads it from `WATCHDOG_CONFIG`.
@@ -18,15 +19,19 @@ import { sendAlert, sendError } from './slack.mjs'
  * @typedef {object} Watchdog
  * @property {string} id Finds the watchdog's row in the state tab. Slack
  *   messages show it under the title.
- * @property {string} [name] Title of the Slack messages.
- * @property {string} property_url Booking page of the property.
+ * @property {string} [name] Title of the Slack messages. Without one, the
+ *   messages take a title from `property_url`.
+ * @property {string} property_url Booking page of the property. It must start
+ *   with `PROPERTY_URL_START`. Its query doesn't reach Booking, so guests from
+ *   a pasted search URL have no effect.
  * @property {string} checkin_date Start of the window, `YYYY-MM-DD`.
  * @property {string} checkout_date End of the window, `YYYY-MM-DD`. It's a
  *   check-out date.
  * @property {number} [adults] Adults in each search. Defaults to
- *   `DEFAULT_ADULTS`.
- * @property {number} [children] Children in each search. Defaults to
- *   `DEFAULT_CHILDREN`.
+ *   `DEFAULT_ADULTS`. Anything but a whole number of at least 1 is an error.
+ * @property {number} [children] Children in each search, each aged
+ *   `CHILD_AGE`. Defaults to `DEFAULT_CHILDREN`. Anything but a whole number of
+ *   at least 0 is an error.
  * @property {number} [min_nights] Length of the stay each check-in date asks
  *   about. Defaults to `DEFAULT_MIN_NIGHTS`. Anything but a whole number of at
  *   least 1 is an error.
@@ -52,16 +57,24 @@ import { sendAlert, sendError } from './slack.mjs'
  */
 
 /**
+ * What the scrape found. The property is missing when Booking sent the first
+ * date's page outside `/hotel/`. The scrape then stops after that one page, so
+ * a missing result has no date results.
+ *
+ * @typedef {{ missing: true, finalUrl: string }
+ *   | { missing: false, dateResults: DateResult[] }} ScrapeResult
+ */
+
+/**
  * Asks Booking about each check-in date. The CLI passes `scrapeAvailability`,
  * and the tests pass a fake.
  *
  * @callback Scrape
- * @param {string} propertyUrl
- * @param {string[]} dates Check-in dates, `YYYY-MM-DD`.
- * @param {number} adults
- * @param {number} children
- * @param {number} minNights Length of the stay each date asks about.
- * @returns {Promise<DateResult[]>} One result for each date.
+ * @param {Watchdog} watchdog With `adults`, `children` and `min_nights` filled
+ *   in. Each date asks for a stay of `min_nights`.
+ * @param {string[]} dates Check-in dates, `YYYY-MM-DD`. At least one.
+ * @returns {Promise<ScrapeResult>} Missing with the final URL, or one result
+ *   for each date.
  */
 
 /**
@@ -95,14 +108,15 @@ function toStretch(checkIns, minNights) {
 
 /**
  * Finds each stretch. An available date means Booking offers a stay of
- * `minNights` from that date, so one is enough. Any date that isn't available
- * ends the sequence.
+ * `minNights` from that date, so one available date already makes a stretch.
+ * Any date that isn't available ends the sequence.
  *
  * With a minimum of 3 and free nights Jul 10 to 14, the check-ins of Jul 10, 11
  * and 12 are available. That gives Jul 10 to Jul 15, 5 nights.
  *
  * @param {DateResult[]} availability Check-in dates in any order, with no date
- *   left out. A date that's left out doesn't end the sequence.
+ *   left out. A date that's left out doesn't end the sequence, so the gap
+ *   joins the stretches on either side.
  * @param {number} minNights Length of the stay each date proves.
  * @returns {Stretch[]} Stretches in date order.
  */
@@ -182,23 +196,89 @@ export function deduplicateStretches(
  * Longest window a watchdog may have, in days from start to end.
  *
  * Without a limit, a wrong year asks for thousands of pages. A window from
- * 2026-07-01 that ends in 2036 instead of 2026 asks for 3660. By estimate, that
- * takes longer than the job limit of 15 minutes.
+ * 2026-07-01 that ends in 2036 instead of 2026 asks for 3660 pages. By
+ * estimate, that takes longer than the job limit of 15 minutes.
  */
 const MAX_WINDOW_DAYS = 500
 
 /**
+ * Throws for the first value of the watchdog that the check can't use, in this
+ * order:
+ *
+ * 1. A property URL that doesn't start with `PROPERTY_URL_START`.
+ * 2. An invalid window: reversed, with an impossible date, or longer than
+ *    `MAX_WINDOW_DAYS`. A date not written as `YYYY-MM-DD` counts as
+ *    impossible.
+ * 3. Minimum nights that aren't a whole number of at least 1.
+ * 4. Adults that aren't a whole number of at least 1, then children that
+ *    aren't a whole number of at least 0.
+ *
+ * Only a watchdog passed in directly can fail 3 or 4, because `config.mjs`
+ * gives a bad Sheet cell its default. `withDefaults` doesn't replace `null`, so
+ * `null` gets the error too.
+ *
+ * `runWatchdog` calls it before it chooses dates, so a watchdog with a finished
+ * window still gets the error. An invalid window isn't a finished window, even
+ * when its dates are past.
+ *
+ * The messages hold no Sheet value, because error messages reach the public
+ * log.
+ *
+ * @param {Watchdog} watchdog With `adults`, `children` and `min_nights` filled
+ *   in.
+ */
+function validateWatchdog({
+	property_url,
+	checkin_date,
+	checkout_date,
+	min_nights,
+	adults,
+	children,
+}) {
+	if (!isPropertyUrl(property_url)) {
+		throw new Error(`The property URL must start with ${PROPERTY_URL_START}.`)
+	}
+
+	const isWindowValid =
+		isRealDate(checkin_date) &&
+		isRealDate(checkout_date) &&
+		checkin_date <= checkout_date
+	if (!isWindowValid) {
+		throw new Error(
+			'The window has an impossible date, or its start is after its end.',
+		)
+	}
+
+	const isWindowTooLong =
+		daysBetween(checkin_date, checkout_date) > MAX_WINDOW_DAYS
+	if (isWindowTooLong) {
+		throw new Error(`The window is longer than ${MAX_WINDOW_DAYS} days.`)
+	}
+
+	const isMinNightsValid = Number.isInteger(min_nights) && min_nights >= 1
+	if (!isMinNightsValid) {
+		throw new Error('The minimum nights must be a whole number of at least 1.')
+	}
+
+	const isAdultsValid = Number.isInteger(adults) && adults >= 1
+	if (!isAdultsValid) {
+		throw new Error(
+			'The number of adults must be a whole number of at least 1.',
+		)
+	}
+
+	const isChildrenValid = Number.isInteger(children) && children >= 0
+	if (!isChildrenValid) {
+		throw new Error(
+			'The number of children must be a whole number of at least 0.',
+		)
+	}
+}
+
+/**
  * Lists the check-in dates that can still give a stay inside the window. The
  * first is the later of `start` and `today`. The last is `end` minus
- * `minNights`.
- *
- * Throws for an invalid window, which is reversed, has an impossible date or is
- * longer than `MAX_WINDOW_DAYS`. A date not written as `YYYY-MM-DD` counts as
- * impossible. An invalid window isn't a finished window, even when its dates
- * are past.
- *
- * Also throws when `minNights` isn't a whole number of at least 1. With several
- * problems, the first in this order decides the message.
+ * `minNights`. Expects values that passed `validateWatchdog`.
  *
  * @param {string} start Start of the window, `YYYY-MM-DD`.
  * @param {string} end End of the window, `YYYY-MM-DD`. It's a check-out date.
@@ -208,44 +288,49 @@ const MAX_WINDOW_DAYS = 500
  *   window is finished.
  */
 function chooseCheckIns(start, end, today, minNights) {
-	// These messages hold no dates or Sheet values, because error messages reach
-	// the public log
-	const isWindowValid = isRealDate(start) && isRealDate(end) && start <= end
-	if (!isWindowValid) {
-		throw new Error(
-			'The window has an impossible date, or its start is after its end.',
-		)
-	}
-
-	const isWindowTooLong = daysBetween(start, end) > MAX_WINDOW_DAYS
-	if (isWindowTooLong) {
-		throw new Error(`The window is longer than ${MAX_WINDOW_DAYS} days.`)
-	}
-
-	const isMinNightsValid = Number.isInteger(minNights) && minNights >= 1
-	if (!isMinNightsValid) {
-		throw new Error('The minimum nights must be a whole number of at least 1.')
-	}
-
 	const isTodayAfterStart = today > start
 	const firstCheckIn = isTodayAfterStart ? today : start
 	return dateRange(firstCheckIn, addDays(end, -minNights))
 }
 
 /**
+ * Fills in the guests and minimum nights that a watchdog passed in directly
+ * leaves out. The Sheet always has them, because `config.mjs` fills them in. A
+ * `null` stays `null`, and `validateWatchdog` rejects it.
+ *
+ * @param {Watchdog} watchdog
+ * @returns {Watchdog} A copy with `adults`, `children` and `min_nights` set.
+ */
+function withDefaults({
+	adults = DEFAULT_ADULTS,
+	children = DEFAULT_CHILDREN,
+	min_nights = DEFAULT_MIN_NIGHTS,
+	...rest
+}) {
+	return { ...rest, adults, children, min_nights }
+}
+
+/**
  * Checks one watchdog, in this order:
  *
- * 1. Choose dates. With none left, stop and return `green`.
+ * 1. Validate the watchdog, then choose dates. With no dates left, stop and
+ *    return `green`.
  * 2. Scrape.
- * 3. Find stretches.
- * 4. Dedup against the alerted stretches in state.
- * 5. Send one Slack message for the new stretches, if any.
- * 6. Write state, even with no stretches. The current stretches replace the
+ * 3. If the property is missing, send the missing message and return `red`.
+ *    State stays as it is, so the message stops by itself once Booking lists
+ *    the property again.
+ * 4. Find stretches.
+ * 5. Keep the stretches that aren't among the alerted stretches in state.
+ * 6. Send one Slack message for the new stretches, if any.
+ * 7. Write state, even with no stretches. The current stretches replace the
  *    alerted ones. A stretch that went away leaves state, so it gets a new
- *    Slack message when it comes back.
+ *    Slack message when it comes back. If this write fails after step 6 sent
+ *    its message, the next workflow run sends the same stretches again. A
+ *    repeated message is better than a missed one.
  *
  * An error in any step sends the Slack error message and returns `red`. A dry
- * run still scrapes and reads state, but it sends nothing and writes nothing.
+ * run still scrapes, and reads state if it gets to step 5, but it sends
+ * nothing and writes nothing.
  *
  * @param {object} options
  * @param {Watchdog} options.watchdog
@@ -256,26 +341,26 @@ function chooseCheckIns(start, end, today, minNights) {
  * @param {string} options.webhookUrl Slack webhook. An empty string prints the
  *   messages instead.
  * @param {boolean} options.isDryRun `true` skips Slack and state writes.
- * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check,
- *   otherwise `green`.
+ * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check or
+ *   the property is missing, otherwise `green`.
  */
 export async function runWatchdog({
-	watchdog,
+	watchdog: givenWatchdog,
 	today,
 	scrape,
 	stateStore,
 	webhookUrl,
 	isDryRun,
 }) {
+	const watchdog = withDefaults(givenWatchdog)
 	const {
 		id,
-		name,
 		property_url,
 		checkin_date,
 		checkout_date,
-		adults = DEFAULT_ADULTS,
-		children = DEFAULT_CHILDREN,
-		min_nights = DEFAULT_MIN_NIGHTS,
+		adults,
+		children,
+		min_nights,
 	} = watchdog
 
 	console.log(`🐶 Bookdog — ${id}`)
@@ -286,6 +371,7 @@ export async function runWatchdog({
 	)
 
 	try {
+		validateWatchdog(watchdog)
 		const checkIns = chooseCheckIns(
 			checkin_date,
 			checkout_date,
@@ -297,13 +383,19 @@ export async function runWatchdog({
 			return 'green'
 		}
 
-		const availability = await scrape(
-			property_url,
-			checkIns,
-			adults,
-			children,
-			min_nights,
-		)
+		const scrapeResult = await scrape(watchdog, checkIns)
+		if (scrapeResult.missing) {
+			const { finalUrl } = scrapeResult
+			console.log(`   Property missing. Booking sends visitors to ${finalUrl}`)
+			if (isDryRun) {
+				console.log('[DRY RUN] Would send the missing message.')
+			} else {
+				await sendMissing(webhookUrl, watchdog, finalUrl)
+			}
+			return 'red'
+		}
+
+		const availability = scrapeResult.dateResults
 		const availCount = availability.filter((d) => d.available).length
 		console.log(`   Available dates: ${availCount}/${availability.length}`)
 
@@ -330,15 +422,7 @@ export async function runWatchdog({
 				)
 			}
 		} else {
-			await sendAlert(
-				webhookUrl,
-				id,
-				name,
-				property_url,
-				newStretches,
-				adults,
-				children,
-			)
+			await sendStretches(webhookUrl, watchdog, newStretches)
 			console.log('   Slack alert sent!')
 		}
 
@@ -350,11 +434,7 @@ export async function runWatchdog({
 		return 'green'
 	} catch (err) {
 		console.error(`Error: ${err.message}`)
-		if (!isDryRun) {
-			// Slack may be what failed. The result is `red` either way, so a second
-			// failure changes nothing.
-			await sendError(webhookUrl, id, name, err.message).catch(() => {})
-		}
+		if (!isDryRun) await sendError(webhookUrl, watchdog, err.message)
 		return 'red'
 	}
 }

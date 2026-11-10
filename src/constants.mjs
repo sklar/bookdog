@@ -1,34 +1,41 @@
 /**
- * Constants that more than one module uses. A constant with one user stays in
- * that module, as `MAX_WINDOW_DAYS` does in `watchdog.mjs`.
+ * Values of each Booking search that the owner may want to change. A limit
+ * such as `MAX_WINDOW_DAYS` stays in the module that checks it.
  *
  * The `DEFAULT_` constants fill in a guest count or minimum nights that is
  * missing or unusable:
  *
  * - `config.mjs` uses them for a Sheet cell that is blank, zero, negative or
  *   unreadable.
- * - `watchdog.mjs` uses them for a config passed in directly that leaves a
- *   value out.
- * - `scraper.mjs` uses the minimum nights when a caller passes none.
+ * - `watchdog.mjs` uses them for a watchdog passed in directly that leaves a
+ *   value out, as the Integration Test and local checks can.
  *
- * `GUIDE.md` repeats their numbers for the owner. Change both together.
+ * `GUIDE.md` repeats every number here for the owner. Change both together.
  */
 
 /**
- * Adults in each search. The scrape and the Slack link send it to Booking as
+ * Adults for a watchdog without a usable count. Booking gets the count as
  * `group_adults`.
  */
 export const DEFAULT_ADULTS = 1
 
 /**
- * Children in each search. The scrape and the Slack link send it to Booking as
- * `group_children`.
+ * Children for a watchdog without a usable count. Booking gets the count as
+ * `group_children`, plus one `age` of `CHILD_AGE` for each child.
  */
 export const DEFAULT_CHILDREN = 0
 
 /**
- * Length of the stay that each check-in date asks about. The scrape sets the
- * page URL's `checkout` this many nights after the check-in. So a stretch from
- * one available date is this many nights long.
+ * Minimum nights for a watchdog without a usable number. Each check-in date
+ * asks Booking for a stay of the minimum nights, with `checkout` that many
+ * nights after the check-in. So a stretch from one available date is that long.
  */
 export const DEFAULT_MIN_NIGHTS = 3
+
+/**
+ * Age of each child in each search, because the Sheet has no ages. The scrape
+ * and the Slack link send one `age` for each child. Booking doesn't count a
+ * child without an age. On the test property, 1 child without an age gave the
+ * same rooms and prices as none. The owner picked 13 on 2026-11-10.
+ */
+export const CHILD_AGE = 13
