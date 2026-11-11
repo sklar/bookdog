@@ -1,5 +1,7 @@
 # Bookdog — Implementation Plan
 
+> Archive: the original build plan, kept for history and no longer updated. Where it disagrees with the code, the code wins. `GUIDE.md` still links here for the Google Sheet structure and §11.
+
 ## Overview
 A GitHub Actions project that runs daily, reads watchdog configs from a Google Sheet, then runs up to 20 parallel Playwright jobs (matrix strategy) to scrape Booking.com property pages for availability. When N+ consecutive available nights are found, it sends a Slack alert with a direct booking link. State (previously alerted runs) is tracked in a second tab of the same Google Sheet to avoid duplicate alerts.
 

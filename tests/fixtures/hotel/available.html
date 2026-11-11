@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <head><title>Grand Hotel Roma - Available</title></head>
-<body>
+<body id="b2hotelPage">
   <div id="hotelTmpl">
     <h2 class="hp__hotel-name">Grand Hotel Roma</h2>
+    <!-- Hidden text doesn't count, so these rooms stay available -->
     <table class="hprt-table">
       <tr>
         <td>Deluxe Double Room</td>
-        <td class="hprt-table-cell-price">€150</td>
+        <td class="hprt-table-cell-price">€150<span style="display:none">Not available</span></td>
       </tr>
       <tr>
         <td>Superior Suite</td>
-        <td class="hprt-table-cell-price">€250</td>
+        <td class="hprt-table-cell-price">€250<span style="display:none">Not available</span></td>
       </tr>
     </table>
   </div>
