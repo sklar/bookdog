@@ -45,8 +45,8 @@ jobs:
         env:
           WATCHDOG_CONFIG: >
             {
-              "id": "test-hexenhauschen",
-              "property_url": "https://www.booking.com/hotel/at/hexenhauschen.en-gb.html",
+              "id": "test-homebound",
+              "property_url": "https://www.booking.com/hotel/at/homebound-apartments-bad-goisern-contactless-check-in.en-gb.html",
               "checkin_date": "${{ steps.dates.outputs.checkin }}",
               "checkout_date": "${{ steps.dates.outputs.checkout }}",
               "adults": 2,
