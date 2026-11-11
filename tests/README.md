@@ -10,7 +10,7 @@
 | Command | Action |
 |---------|--------|
 | `pnpm test` | Run all tests |
-| `pnpm test.alert` | Send a sample stretch message and error message to Slack, needs `.env` |
+| `pnpm test.alert` | Send one sample of each Slack message, needs `.env` |
 
 ## 🗂️ Structure
 
@@ -43,7 +43,11 @@ Fixtures are hand-trimmed copies of Booking.com pages. The test server serves ea
 
 - `/hotel/old-name.html`, a renamed slug that redirects to `available.html`
 - `/hotel/city-after-first.html`, which has rooms on the first date and goes to a city page on later dates
+- `/hotel/unknown-once.html`, which has rooms, but Jul 1 has no property mark on its first load
+- `/hotel/city-on-second-try.html`, which has rooms, but Jul 1 has no property mark on its first load and goes to a city page on its second
 - `/hotel/hang-up.html`, where the server closes the connection, so the page fails to load
+
+The two second-try routes count the earlier requests for the same path and check-in date. That's how they tell a first load from a second.
 
 Each priced cell in `available.html` hides a "not available" span. A scraper that reads hidden text then fails the test.
 
@@ -51,7 +55,7 @@ Put a new property page under `hotel/` and give it the property mark, `<body id=
 
 Booking has shown the no-availability message only on pages without a room table, but `rows-without-prices.html` has both on purpose. The rows win, and the date is unknown.
 
-The server answers the first request of each test with 202, as Booking does for the first page of a browser session. A redirect still answers 301. The server keeps the URL and user agent of each request, so a test can check what the scraper asked Booking for.
+The server answers the first request of each test with 202, as Booking does for the first page of a browser session. `old-name.html` answers 301 even on the first request. The server keeps the URL and user agent of each request, so a test can check what the scraper asked Booking for.
 
 Save a real page into `fixtures/hotel/`, then trim it by hand. A saved property page is 2 to 3 MB, and a test needs a few lines of it.
 
@@ -62,5 +66,6 @@ node tests/save-snapshot.mjs <booking-url> <output-name>
 ## 📝 Notes
 
 - Scraper tests skip themselves when Playwright isn't installed.
-- A page with neither a room table nor the no-availability message waits 5 seconds. That makes three tests slow: the `no-room-table.html` test and the two whose pages end on a city page. Give each such test as few dates as it can.
+- The scraper waits up to 5 seconds for a room table or the no-availability message. A page under `/hotel/` with neither uses all 5, which makes the `no-room-table.html` test slow. A page that moves to a city page ends the wait once it leaves `/hotel/`. Give each test only the dates it needs.
+- A second try needs 10 dates or more, because 1 unknown date of 9 is already more than 10%. Each worker pauses 1.5 to 3.5 seconds between its loads, so those tests pass `scrapeAvailability` a `pause` that returns at once.
 - Logic tests call pure functions and need nothing else.

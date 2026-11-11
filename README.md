@@ -56,7 +56,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 | `pnpm check` | Run availability check (CI) |
 | `pnpm check.dry` | Run locally with `.env` |
 | `pnpm test` | Run unit + scraper tests |
-| `pnpm test.alert` | Send test Slack alert |
+| `pnpm test.alert` | Send sample Slack messages |
 | `pnpm lint.check` | Check with Biome |
 | `pnpm lint.write` | Fix with Biome |
 | `pnpm changeset` | Create a new changeset |
