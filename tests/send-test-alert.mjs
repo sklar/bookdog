@@ -33,9 +33,10 @@ const webhookUrl = process.env.SLACK_WEBHOOK_URL || ''
  * @type {import('../src/watchdog.mjs').Watchdog}
  */
 const watchdog = {
-	id: 'hexenhauschen-20260701-20260731-4N2A0C',
-	name: 'Hexenhäuschen 🧙‍♀️',
-	property_url: 'https://www.booking.com/hotel/at/hexenhauschen.en-gb.html',
+	id: 'test-homebound',
+	name: 'Homebound, Bad Goisern am Hallstättersee 🏔️',
+	property_url:
+		'https://www.booking.com/hotel/at/homebound-apartments-bad-goisern-contactless-check-in.en-gb.html',
 	checkin_date: '2026-07-01',
 	checkout_date: '2026-07-31',
 	adults: 2,
