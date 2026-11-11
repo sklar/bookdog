@@ -1,7 +1,8 @@
 /**
- * Checks one watchdog. `runWatchdog` holds the steps. `check.mjs` passes in the
- * real scrape and state store, so this file loads neither Playwright nor
- * Google.
+ * Checks one watchdog. `runWatchdog` holds the steps.
+ *
+ * `check.mjs` passes in the real scrape and state store, so this file loads
+ * neither Playwright nor Google. The tests pass fakes instead.
  */
 
 import { isPropertyUrl, PROPERTY_URL_START } from './booking.mjs'
@@ -11,7 +12,8 @@ import {
 	DEFAULT_MIN_NIGHTS,
 } from './constants.mjs'
 import { addDays, dateRange, daysBetween, isRealDate } from './dates.mjs'
-import { sendError, sendMissing, sendStretches } from './slack.mjs'
+import { sendError, sendMissing, sendStretches, sendUnknown } from './slack.mjs'
+import { isTooManyUnknown } from './unknown-dates.mjs'
 
 /**
  * One row of the Sheet, as the CLI reads it from `WATCHDOG_CONFIG`.
@@ -60,9 +62,11 @@ import { sendError, sendMissing, sendStretches } from './slack.mjs'
  */
 
 /**
- * What the scrape found. The property is missing when Booking sent the first
- * date's page outside `/hotel/`. The scrape then stops after that one page, so
- * a missing result has no date results.
+ * What the scrape found.
+ *
+ * The property is missing when Booking sent the first date's page outside
+ * `/hotel/`. The scrape then stops after that one page, so a missing result
+ * has no date results.
  *
  * @typedef {{ missing: true, finalUrl: string }
  *   | { missing: false, dateResults: DateResult[] }} ScrapeResult
@@ -81,12 +85,16 @@ import { sendError, sendMissing, sendStretches } from './slack.mjs'
  */
 
 /**
+ * One watchdog's row in the `state` tab, with its alerted stretches.
+ *
  * @typedef {import('./state.mjs').State} State
  */
 
 /**
- * Keeps the alerted stretches between workflow runs. The CLI backs it with the
- * state tab of the Sheet.
+ * Keeps the alerted stretches between workflow runs.
+ *
+ * The CLI reads and writes the `state` tab of the Sheet through it. The tests
+ * keep the state in memory.
  *
  * @typedef {object} StateStore
  * @property {(id: string) => Promise<State>} read Returns the state of one
@@ -110,10 +118,11 @@ function toStretch(checkIns, minNights) {
 }
 
 /**
- * Finds each stretch. An available date means Booking offers a stay of
- * `minNights` from that date, so one available date already makes a stretch.
- * A sold out or unknown date ends the sequence, so no stretch holds a night
- * that nobody verified.
+ * Finds the stretches in the date results.
+ *
+ * An available date means Booking offers a stay of `minNights` from that date,
+ * so one available date already makes a stretch. A sold out or unknown date
+ * ends the sequence, so no stretch holds a night that nobody verified.
  *
  * With a minimum of 3 and free nights Jul 10 to 14, the check-ins of Jul 10, 11
  * and 12 are available. That gives Jul 10 to Jul 15, 5 nights.
@@ -280,9 +289,12 @@ function validateWatchdog({
 }
 
 /**
- * Lists the check-in dates that can still give a stay inside the window. The
- * first is the later of `start` and `today`. The last is `end` minus
- * `minNights`. Expects values that passed `validateWatchdog`.
+ * Lists the check-in dates that can still give a stay inside the window.
+ *
+ * The first is the later of `start` and `today`. The last is `end` minus
+ * `minNights`. With Jul 1 to Jul 10 and a minimum of 3, the last is Jul 7.
+ *
+ * Expects values that passed `validateWatchdog`.
  *
  * @param {string} start Start of the window, `YYYY-MM-DD`.
  * @param {string} end End of the window, `YYYY-MM-DD`. It's a check-out date.
@@ -298,9 +310,11 @@ function chooseCheckIns(start, end, today, minNights) {
 }
 
 /**
- * Fills in the guests and minimum nights that a watchdog passed in directly
- * leaves out. The Sheet always has them, because `config.mjs` fills them in. A
- * `null` stays `null`, and `validateWatchdog` rejects it.
+ * Fills in the guests and minimum nights when a watchdog leaves them out.
+ *
+ * Only a watchdog passed in directly can, because `config.mjs` fills them in
+ * for every Sheet row. A `null` stays `null`, and `validateWatchdog` rejects
+ * it.
  *
  * @param {Watchdog} watchdog
  * @returns {Watchdog} A copy with `adults`, `children` and `min_nights` set.
@@ -326,27 +340,42 @@ function withDefaults({
  * 4. Find stretches.
  * 5. Keep the stretches that aren't among the alerted stretches in state.
  * 6. Send one Slack message for the new stretches, if any.
- * 7. Write state, even with no stretches. The current stretches replace the
+ * 7. If `isTooManyUnknown` finds more than 10% of the dates unknown, send the
+ *    unknown message. The check returns `red`, after step 8.
+ * 8. Write state, even with no stretches. The current stretches replace the
  *    alerted ones. A stretch that went away leaves state, so it gets a new
- *    Slack message when it comes back. If this write fails after step 6 sent
- *    its message, the next workflow run sends the same stretches again. A
- *    repeated message is better than a missed one.
+ *    Slack message when it comes back.
  *
- * An error in any step sends the Slack error message and returns `red`. A dry
- * run still scrapes, and reads state if it gets to step 5, but it sends
- * nothing and writes nothing.
+ *    With too many unknown dates, the alerted stretches stay and the new ones
+ *    join them, because the unknown dates may hide a stretch that is still
+ *    there.
+ *
+ *    If this write fails after step 6 sent its message, the next workflow run
+ *    sends the same stretches again. A failed unknown message in step 7 does
+ *    the same, because the error skips this write. A repeated message is
+ *    better than a missed one.
+ *
+ * An error in any step sends the Slack error message and returns `red`.
+ *
+ * A dry run still scrapes, and reads state if it gets to step 5, but it sends
+ * nothing and writes nothing. It returns the same colour as without the dry
+ * run.
  *
  * @param {object} options
- * @param {Watchdog} options.watchdog
+ * @param {Watchdog} options.watchdog One row of the Sheet. `withDefaults` fills
+ *   in what it leaves out.
  * @param {string} options.today `YYYY-MM-DD`. The CLI passes today in UTC.
- * @param {Scrape} options.scrape
+ * @param {Scrape} options.scrape `scrapeAvailability`, or a fake in the tests.
  * @param {StateStore | null} options.stateStore `null` keeps no state, so each
  *   check treats every stretch as new.
  * @param {string} options.webhookUrl Slack webhook. An empty string prints the
  *   messages instead.
+ * @param {string | null} options.workflowRunUrl Link to the workflow run, for
+ *   the unknown message. `null` on the owner's machine, which leaves the link
+ *   out.
  * @param {boolean} options.isDryRun `true` skips Slack and state writes.
- * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check or
- *   the property is missing, otherwise `green`.
+ * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check,
+ *   the property is missing or too many dates are unknown, otherwise `green`.
  */
 export async function runWatchdog({
 	watchdog: givenWatchdog,
@@ -354,6 +383,7 @@ export async function runWatchdog({
 	scrape,
 	stateStore,
 	webhookUrl,
+	workflowRunUrl,
 	isDryRun,
 }) {
 	const watchdog = withDefaults(givenWatchdog)
@@ -433,12 +463,34 @@ export async function runWatchdog({
 			console.log('   Slack alert sent!')
 		}
 
-		const shouldWriteState = stateStore && !isDryRun
-		if (!shouldWriteState) return 'green'
+		const hasTooManyUnknown = isTooManyUnknown(dateResults)
+		if (hasTooManyUnknown) {
+			const counts = { unknown: count('unknown'), total: dateResults.length }
+			console.log(
+				`   Too many unknown dates: ${counts.unknown} of ${counts.total}.`,
+			)
+			if (isDryRun) {
+				console.log('[DRY RUN] Would send the unknown message.')
+			} else {
+				await sendUnknown(webhookUrl, watchdog, counts, workflowRunUrl)
+			}
+		}
+		const colour = hasTooManyUnknown ? 'red' : 'green'
 
-		await stateStore.write(id, { ...state, alertedStretches: stretches })
+		const shouldWriteState = stateStore && !isDryRun
+		if (!shouldWriteState) return colour
+
+		// Too many unknown dates can hide an alerted stretch. Dropping it from
+		// state would repeat its message once the dates have answers again.
+		const nextAlertedStretches = hasTooManyUnknown
+			? [...alertedStretches, ...newStretches]
+			: stretches
+		await stateStore.write(id, {
+			...state,
+			alertedStretches: nextAlertedStretches,
+		})
 		console.log('   State updated.')
-		return 'green'
+		return colour
 	} catch (err) {
 		console.error(`Error: ${err.message}`)
 		if (!isDryRun) await sendError(webhookUrl, watchdog, err.message)
