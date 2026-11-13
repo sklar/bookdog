@@ -5,6 +5,10 @@
  *
  * The first date loads alone, then up to `CONCURRENCY` Playwright pages share
  * the other dates. A few unknown dates get a second try.
+ *
+ * On GitHub the log shows only counts. A verbose logger also prints each date,
+ * where its page settled, and Playwright's error messages, which hold the page
+ * URL.
  */
 import { chromium } from 'playwright'
 import { buildBookingUrl } from './booking.mjs'
@@ -12,8 +16,10 @@ import { addDays } from './dates.mjs'
 import { isTooManyUnknown } from './unknown-dates.mjs'
 
 /**
- * Pages open at once. A window of 500 days needs 500 page loads, plus up to 50
- * on the second try, and fits inside the job limit of 15 minutes.
+ * How many pages load at once.
+ *
+ * A window of 500 days needs 500 page loads, plus up to 50 on the second try.
+ * They fit inside the check job's `timeout-minutes: 15`.
  *
  * Timeouts can break that. 50 page loads that each time out after 30 seconds
  * take about 5 minutes, once in the first pass and again on the second try.
@@ -65,22 +71,38 @@ const PAGE_LANGUAGE = 'en-gb'
 // here and in the fixtures.
 
 /**
- * Every property page has this mark. City pages and block pages don't.
+ * The mark every property page has. City pages and block pages don't.
  *
- * So `checkDate` checks the mark and the `/hotel/` path. A city page has no
- * mark and leaves `/hotel/`. A block page has no mark either, but it can keep
- * the `/hotel/` path.
+ * `checkDate` checks the mark and the `/hotel/` path. A city page has no mark
+ * and leaves `/hotel/`, so the path tells that a property is missing. A block
+ * page has no mark either, but it can keep the `/hotel/` path, so only the mark
+ * catches it.
  */
 const PROPERTY_MARK = 'body#b2hotelPage'
+
+/**
+ * The room table of a property page.
+ *
+ * It can appear after `domcontentloaded`, so `checkDate` waits for it.
+ */
 const ROOM_TABLE = '.hprt-table'
+
+/**
+ * Every row of the room table, the header row included.
+ */
 const ROOM_ROW = `${ROOM_TABLE} tr`
+
+/**
+ * The price cell of a room row. It holds a price, or text such as "Not
+ * available for your dates".
+ */
 const PRICE_CELL = `${ROOM_ROW} .hprt-table-cell-price`
 
 /**
- * Takes the room table's place on a date with no rooms.
+ * Booking's "We have no availability here" message.
  *
- * So far Booking has shown it only on dates past the booking limit, never on a
- * fully booked date.
+ * It takes the room table's place on a date with no rooms. So far Booking has
+ * shown it only on dates past the booking limit, never on a fully booked date.
  */
 const NO_AVAILABILITY_MESSAGE = '#no_availability_msg'
 
@@ -95,10 +117,12 @@ const NO_AVAILABILITY_MESSAGE = '#no_availability_msg'
 const SETTLE_TIMEOUT_MS = 5000
 
 /**
- * Clicks the cookie banner's accept button, the sign-in prompt's dismiss button
- * and any other close button that is visible now. `isVisible` doesn't wait, and
- * Playwright ignores a timeout passed to it. So a banner that appears a moment
- * later stays open.
+ * Closes the banners that are visible now.
+ *
+ * It clicks the cookie banner's accept button, the sign-in prompt's dismiss
+ * button and any other close button. `isVisible` doesn't wait, and Playwright
+ * ignores a timeout passed to it. So a banner that appears a moment later
+ * stays open.
  *
  * @param {import('playwright').Page} page
  * @returns {Promise<void>} Resolves after each selector was tried.
@@ -120,11 +144,13 @@ async function dismissBanners(page) {
 }
 
 /**
- * Builds the user agent of desktop Chrome, with the version and system of the
- * Chromium that runs. Desktop Chrome sends `Chrome/156.0.0.0`, and headless
- * Chromium sends `HeadlessChrome/156.0.8078.4`. On 2026-11-10, Booking answered
- * the headless one with pages that had no room table and ignored the guests.
- * Every date would then read as not available.
+ * Builds a desktop Chrome user agent, with the version and system of the
+ * Chromium that runs.
+ *
+ * Desktop Chrome sends `Chrome/156.0.0.0`, and headless Chromium sends
+ * `HeadlessChrome/156.0.8078.4`. On 2026-11-10, Booking answered the headless
+ * one with pages that had no room table and ignored the guests. No date would
+ * then read as available.
  *
  * A page can still find `HeadlessChrome` in `navigator.userAgentData`. This
  * doesn't hide it.
@@ -150,20 +176,25 @@ async function desktopUserAgent(browser) {
  *
  * @typedef {object} PageRead
  * @property {Result} result
- * @property {string} [reason] Why the date is unknown, for the log.
+ * @property {string} [reason] Why the date is unknown, for the verbose log.
+ *   It can hold the final URL.
  */
 
 /**
- * What one page load found.
+ * What one page load found: the page read, and `finalUrl`, where the page
+ * settled.
  *
- * @typedef {PageRead & { finalUrl: string | null }} PageResult `finalUrl` is
- *   where the page settled, `null` when the page threw.
+ * `finalUrl` is `null` when the page threw.
+ *
+ * @typedef {PageRead & { finalUrl: string | null }} PageResult
  */
 
 /**
  * Tells whether a URL is under `/hotel/`, where Booking keeps every property
- * page. A renamed property stays there. A missing one goes elsewhere, such as a
- * city page.
+ * page.
+ *
+ * A renamed property stays there. A missing one goes elsewhere, such as a city
+ * page.
  *
  * @param {string} url
  * @returns {boolean} `true` when the path starts with `/hotel/`.
@@ -297,7 +328,7 @@ async function checkDate(page, watchdog, date) {
 }
 
 /**
- * Describes one loaded date for its log line.
+ * Describes one loaded date for its progress line in the verbose log.
  *
  * @param {PageRead} pageRead
  * @returns {string} Such as `sold out` or `unknown, no property mark`.
@@ -315,7 +346,7 @@ function describeDate({ result, reason }) {
  *
  * A later date that settles outside `/hotel/` comes back unknown, and the
  * property isn't missing. A date whose page throws is unknown too, and the log
- * gets a warning. An unknown first date doesn't stop the scrape.
+ * gets the error. An unknown first date doesn't stop the scrape.
  *
  * After this first pass, the unknown dates load once more, and the new result
  * replaces the old one. `isTooManyUnknown` stops that when more than 10% are
@@ -325,6 +356,9 @@ function describeDate({ result, reason }) {
  * @param {import('./watchdog.mjs').Watchdog} watchdog With `adults`,
  *   `children` and `min_nights` filled in.
  * @param {string[]} dates Check-in dates, `YYYY-MM-DD`. At least one.
+ * @param {import('./logger.mjs').Logger} logger Prints the counts. A verbose
+ *   logger also prints a line for each date and each error message. On GitHub
+ *   a failed page shows only the error's name.
  * @param {object} [options] Only tests pass it.
  * @param {() => Promise<void>} [options.pause] Waits between two loads of one
  *   page. Defaults to `randomDelay`. Tests pass one that returns at once.
@@ -334,6 +368,7 @@ function describeDate({ result, reason }) {
 export async function scrapeAvailability(
 	watchdog,
 	dates,
+	logger,
 	{ pause = randomDelay } = {},
 ) {
 	// Playwright adds `--no-sandbox` unless `chromiumSandbox` is true, so this
@@ -348,8 +383,9 @@ export async function scrapeAvailability(
 		})
 
 		/**
-		 * Builds the logger for one pass. It numbers each loaded date within that
-		 * pass, such as `[second try 1/2]`.
+		 * Builds the progress log for one pass. It numbers each loaded date within
+		 * that pass, such as `[second try 1/2]`. Only a verbose logger prints it,
+		 * because each line shows a date.
 		 *
 		 * @param {number} total Dates in the pass.
 		 * @param {string} [label] Goes before the count, such as `second try `.
@@ -360,7 +396,7 @@ export async function scrapeAvailability(
 			let completed = 0
 			return (date, words) => {
 				completed++
-				console.log(`  [${label}${completed}/${total}] ${date} — ${words}`)
+				logger.detail(`  [${label}${completed}/${total}] ${date} — ${words}`)
 			}
 		}
 
@@ -377,7 +413,9 @@ export async function scrapeAvailability(
 		 */
 		const loadDate = async (page, date, logProgress) => {
 			const pageResult = await checkDate(page, watchdog, date).catch((err) => {
-				console.warn(`Failed to check ${date}: ${err.message}`)
+				// The error line names no date. The progress line below does, in a
+				// verbose log.
+				logger.error('Failed to check a date', err)
 				return /** @type {PageResult} */ ({
 					finalUrl: null,
 					result: 'unknown',
@@ -388,7 +426,7 @@ export async function scrapeAvailability(
 			return pageResult
 		}
 
-		console.log(`Scraping ${dates.length} dates (${CONCURRENCY} concurrent)...`)
+		logger.log(`Scraping ${dates.length} dates (${CONCURRENCY} concurrent)...`)
 		const logFirstPass = progressLog(dates.length)
 
 		// The first date loads alone, so a missing property costs one page load
@@ -398,7 +436,7 @@ export async function scrapeAvailability(
 		const { finalUrl } = firstPageResult
 		const isMissing = finalUrl !== null && !isUnderHotelPath(finalUrl)
 		if (isMissing) {
-			console.log('Scraping stopped: the property is missing')
+			logger.log('Scraping stopped: the property is missing')
 			return { missing: true, finalUrl }
 		}
 
@@ -444,7 +482,7 @@ export async function scrapeAvailability(
 		 *   of the first pass, with the new result for each date tried again.
 		 */
 		const tryAgain = async (unknownDates, firstPassResults) => {
-			console.log(`Second try for ${unknownDates.length} unknown dates...`)
+			logger.log(`Second try for ${unknownDates.length} unknown dates...`)
 			const secondTryResults = await loadOnPages(
 				unknownDates,
 				progressLog(unknownDates.length, 'second try '),
@@ -476,7 +514,7 @@ export async function scrapeAvailability(
 				: firstPassResults
 		).toSorted((a, b) => a.date.localeCompare(b.date))
 
-		console.log(`Scraping completed: ${dateResults.length} dates`)
+		logger.log(`Scraping completed: ${dateResults.length} dates`)
 		return { missing: false, dateResults }
 	} finally {
 		await browser.close()
