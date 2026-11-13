@@ -3,6 +3,9 @@
  *
  * `check.mjs` passes in the real scrape and state store, so this file loads
  * neither Playwright nor Google. The tests pass fakes instead.
+ *
+ * Every line goes through the logger that `check.mjs` passes in. On GitHub it
+ * prints only counts and fixed text, and Slack gets the detail.
  */
 
 import { isPropertyUrl, PROPERTY_URL_START } from './booking.mjs'
@@ -12,11 +15,15 @@ import {
 	DEFAULT_MIN_NIGHTS,
 } from './constants.mjs'
 import { addDays, dateRange, daysBetween, isRealDate } from './dates.mjs'
+import { describeError } from './logger.mjs'
 import { sendError, sendMissing, sendStretches, sendUnknown } from './slack.mjs'
 import { isTooManyUnknown } from './unknown-dates.mjs'
 
 /**
- * One row of the Sheet, as the CLI reads it from `WATCHDOG_CONFIG`.
+ * One row of the Sheet.
+ *
+ * The CLI reads it from the row in `WATCHDOG_ROW`, or from the JSON in
+ * `WATCHDOG_CONFIG`.
  *
  * @typedef {object} Watchdog
  * @property {string} id Finds the watchdog's row in the state tab. Slack
@@ -73,13 +80,15 @@ import { isTooManyUnknown } from './unknown-dates.mjs'
  */
 
 /**
- * Asks Booking about each check-in date. The CLI passes `scrapeAvailability`,
- * and the tests pass a fake.
+ * Asks Booking about each check-in date.
+ *
+ * The CLI passes `scrapeAvailability`, and the tests pass a fake.
  *
  * @callback Scrape
  * @param {Watchdog} watchdog With `adults`, `children` and `min_nights` filled
  *   in. Each date asks for a stay of `min_nights`.
  * @param {string[]} dates Check-in dates, `YYYY-MM-DD`. At least one.
+ * @param {Logger} logger Prints the scrape's lines.
  * @returns {Promise<ScrapeResult>} Missing with the final URL, or one result
  *   for each date.
  */
@@ -88,6 +97,12 @@ import { isTooManyUnknown } from './unknown-dates.mjs'
  * One watchdog's row in the `state` tab, with its alerted stretches.
  *
  * @typedef {import('./state.mjs').State} State
+ */
+
+/**
+ * Prints the lines of a check, with Sheet data only when verbose.
+ *
+ * @typedef {import('./logger.mjs').Logger} Logger
  */
 
 /**
@@ -155,7 +170,9 @@ export function findStretches(dateResults, minNights) {
 
 /**
  * Tells whether `current` is the same stretch as `alerted`, which already had
- * its Slack message. They match when `start` and `end` are both equal.
+ * its Slack message.
+ *
+ * They match when `start` and `end` are both equal.
  *
  * A stretch that includes today needs one more rule. It starts today, because
  * the first check-in is never before today, so its `start` moves forward each
@@ -181,8 +198,9 @@ function isSameStretch(current, alerted, today) {
 }
 
 /**
- * Keeps the stretches that had no Slack message yet. `isSameStretch` decides
- * whether an alerted stretch matches.
+ * Keeps the stretches that had no Slack message yet.
+ *
+ * `isSameStretch` decides whether an alerted stretch matches.
  *
  * @param {Stretch[]} currentStretches Stretches found by this check.
  * @param {Stretch[]} alertedStretches Stretches from state, which already had
@@ -210,7 +228,7 @@ export function deduplicateStretches(
  *
  * Without a limit, a wrong year asks for thousands of pages. A window from
  * 2026-07-01 that ends in 2036 instead of 2026 asks for 3660 pages. By
- * estimate, that takes longer than the job limit of 15 minutes.
+ * estimate, that takes longer than the check job's `timeout-minutes: 15`.
  */
 const MAX_WINDOW_DAYS = 500
 
@@ -226,16 +244,16 @@ const MAX_WINDOW_DAYS = 500
  * 4. Adults that aren't a whole number of at least 1, then children that
  *    aren't a whole number of at least 0.
  *
- * Only a watchdog passed in directly can fail 3 or 4, because `config.mjs`
- * gives a bad Sheet cell its default. `withDefaults` doesn't replace `null`, so
+ * Only a watchdog from `WATCHDOG_CONFIG` or a test can fail 3 or 4, because
+ * `config.mjs` gives a bad Sheet cell its default. `withDefaults` doesn't replace `null`, so
  * `null` gets the error too.
  *
  * `runWatchdog` calls it before it chooses dates, so a watchdog with a finished
  * window still gets the error. An invalid window isn't a finished window, even
  * when its dates are past.
  *
- * The messages hold no Sheet value, because error messages reach the public
- * log.
+ * The messages hold no Sheet value. Slack and a verbose log show them, and the
+ * public log shows only the error's name.
  *
  * @param {Watchdog} watchdog With `adults`, `children` and `min_nights` filled
  *   in.
@@ -312,9 +330,9 @@ function chooseCheckIns(start, end, today, minNights) {
 /**
  * Fills in the guests and minimum nights when a watchdog leaves them out.
  *
- * Only a watchdog passed in directly can, because `config.mjs` fills them in
- * for every Sheet row. A `null` stays `null`, and `validateWatchdog` rejects
- * it.
+ * Only a watchdog from `WATCHDOG_CONFIG` or a test leaves them out, because
+ * `config.mjs` fills them in for every Sheet row. A `null` stays `null`, and
+ * `validateWatchdog` rejects it.
  *
  * @param {Watchdog} watchdog
  * @returns {Watchdog} A copy with `adults`, `children` and `min_nights` set.
@@ -358,8 +376,9 @@ function withDefaults({
  * An error in any step sends the Slack error message and returns `red`.
  *
  * A dry run still scrapes, and reads state if it gets to step 5, but it sends
- * nothing and writes nothing. It returns the same colour as without the dry
- * run.
+ * nothing and writes nothing. For each message it skips, it logs a line such
+ * as `[DRY RUN] Would send the error message.` It returns the same colour as
+ * without the dry run.
  *
  * @param {object} options
  * @param {Watchdog} options.watchdog One row of the Sheet. `withDefaults` fills
@@ -368,12 +387,16 @@ function withDefaults({
  * @param {Scrape} options.scrape `scrapeAvailability`, or a fake in the tests.
  * @param {StateStore | null} options.stateStore `null` keeps no state, so each
  *   check treats every stretch as new.
- * @param {string} options.webhookUrl Slack webhook. An empty string prints the
- *   messages instead.
+ * @param {string} options.webhookUrl Slack webhook. An empty string sends
+ *   nothing, and a verbose logger prints the messages instead.
  * @param {string | null} options.workflowRunUrl Link to the workflow run, for
- *   the unknown message. `null` on the owner's machine, which leaves the link
- *   out.
+ *   the message about too many unknown dates. `null` on the owner's machine,
+ *   which leaves the link out.
  * @param {boolean} options.isDryRun `true` skips Slack and state writes.
+ * @param {Logger} options.logger Prints the counts and steps of the check. A
+ *   verbose logger also prints the watchdog's id, URL, window and guests, the
+ *   new stretches of a dry run, where a missing property's page goes, and each
+ *   error message. On GitHub an error shows only its name.
  * @returns {Promise<'red' | 'green'>} `red` when an error stopped the check,
  *   the property is missing or too many dates are unknown, otherwise `green`.
  */
@@ -385,6 +408,7 @@ export async function runWatchdog({
 	webhookUrl,
 	workflowRunUrl,
 	isDryRun,
+	logger,
 }) {
 	const watchdog = withDefaults(givenWatchdog)
 	const {
@@ -397,10 +421,29 @@ export async function runWatchdog({
 		min_nights,
 	} = watchdog
 
-	console.log(`🐶 Bookdog — ${id}`)
-	console.log(`   Property: ${property_url}`)
-	console.log(`   Dates: ${checkin_date} → ${checkout_date}`)
-	console.log(
+	/**
+	 * Sends one Slack message, or on a dry run logs that it would.
+	 *
+	 * The missing, unknown and error messages go through it. The stretch
+	 * message has its own dry run branch, which also lists each new stretch in
+	 * the verbose log.
+	 *
+	 * @param {string} name The message, as the log names it, such as `missing`.
+	 * @param {() => Promise<void>} send Sends the message.
+	 * @returns {Promise<void>} Resolves after the send, or at once on a dry run.
+	 */
+	const sendUnlessDryRun = async (name, send) => {
+		if (isDryRun) {
+			logger.log(`[DRY RUN] Would send the ${name} message.`)
+			return
+		}
+		await send()
+	}
+
+	logger.detail(`   Watchdog: ${id}`)
+	logger.detail(`   Property: ${property_url}`)
+	logger.detail(`   Dates: ${checkin_date} → ${checkout_date}`)
+	logger.detail(
 		`   Min nights: ${min_nights} | Adults: ${adults} | Children: ${children}`,
 	)
 
@@ -413,31 +456,30 @@ export async function runWatchdog({
 			min_nights,
 		)
 		if (checkIns.length === 0) {
-			console.log('   Window finished, no dates to check.')
+			logger.log('   Window finished, no dates to check.')
 			return 'green'
 		}
 
-		const scrapeResult = await scrape(watchdog, checkIns)
+		const scrapeResult = await scrape(watchdog, checkIns, logger)
 		if (scrapeResult.missing) {
 			const { finalUrl } = scrapeResult
-			console.log(`   Property missing. Booking sends visitors to ${finalUrl}`)
-			if (isDryRun) {
-				console.log('[DRY RUN] Would send the missing message.')
-			} else {
-				await sendMissing(webhookUrl, watchdog, finalUrl)
-			}
+			logger.log('   Property missing.')
+			logger.detail(`   Booking sends visitors to ${finalUrl}`)
+			await sendUnlessDryRun('missing', () =>
+				sendMissing(webhookUrl, watchdog, finalUrl, logger),
+			)
 			return 'red'
 		}
 
 		const { dateResults } = scrapeResult
 		const count = (result) =>
 			dateResults.filter((d) => d.result === result).length
-		console.log(
+		logger.log(
 			`   Dates checked: ${dateResults.length} — ${count('available')} available, ${count('sold-out')} sold out, ${count('unknown')} unknown`,
 		)
 
 		const stretches = findStretches(dateResults, min_nights)
-		console.log(`   Stretches found: ${stretches.length}`)
+		logger.log(`   Stretches found: ${stretches.length}`)
 
 		const state = stateStore ? await stateStore.read(id) : null
 		const alertedStretches = state ? state.alertedStretches : []
@@ -447,33 +489,31 @@ export async function runWatchdog({
 			today,
 		)
 
-		if (stretches.length === 0) {
-			console.log('   No stretches found.')
-		} else if (newStretches.length === 0) {
-			console.log('   All stretches already alerted.')
-		} else if (isDryRun) {
-			console.log('[DRY RUN] Would send alert:')
+		// "Stretches found: 0" already says that there's nothing to send
+		const hasNewStretches = newStretches.length > 0
+		const isEveryStretchAlerted = stretches.length > 0 && !hasNewStretches
+		if (isEveryStretchAlerted) {
+			logger.log('   All stretches already alerted.')
+		} else if (hasNewStretches && isDryRun) {
+			logger.log('[DRY RUN] Would send the stretch message.')
 			for (const stretch of newStretches) {
-				console.log(
+				logger.detail(
 					`  ✅ ${stretch.start} → ${stretch.end} (${stretch.nights} nights)`,
 				)
 			}
-		} else {
-			await sendStretches(webhookUrl, watchdog, newStretches)
-			console.log('   Slack alert sent!')
+		} else if (hasNewStretches) {
+			await sendStretches(webhookUrl, watchdog, newStretches, logger)
 		}
 
 		const hasTooManyUnknown = isTooManyUnknown(dateResults)
 		if (hasTooManyUnknown) {
 			const counts = { unknown: count('unknown'), total: dateResults.length }
-			console.log(
+			logger.log(
 				`   Too many unknown dates: ${counts.unknown} of ${counts.total}.`,
 			)
-			if (isDryRun) {
-				console.log('[DRY RUN] Would send the unknown message.')
-			} else {
-				await sendUnknown(webhookUrl, watchdog, counts, workflowRunUrl)
-			}
+			await sendUnlessDryRun('unknown', () =>
+				sendUnknown(webhookUrl, watchdog, counts, workflowRunUrl, logger),
+			)
 		}
 		const colour = hasTooManyUnknown ? 'red' : 'green'
 
@@ -489,11 +529,13 @@ export async function runWatchdog({
 			...state,
 			alertedStretches: nextAlertedStretches,
 		})
-		console.log('   State updated.')
+		logger.log('   State updated.')
 		return colour
 	} catch (err) {
-		console.error(`Error: ${err.message}`)
-		if (!isDryRun) await sendError(webhookUrl, watchdog, err.message)
+		logger.error('Check failed', err)
+		await sendUnlessDryRun('error', () =>
+			sendError(webhookUrl, watchdog, describeError(err), logger),
+		)
 		return 'red'
 	}
 }

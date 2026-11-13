@@ -1,17 +1,20 @@
 /**
- * Sends one sample of each Slack message, to check how it looks in Slack. The
- * four samples are new stretches, a missing property, too many unknown dates
- * and an error.
+ * Sends one sample of each Slack message, to see how it looks in Slack.
  *
- * `pnpm test.alert` runs it with the values in `.env`. Point
- * `SLACK_WEBHOOK_URL` there at the test channel, because the samples look like
- * real messages. Without a webhook URL, the script prints them instead.
+ * The four samples are new stretches, a missing property, too many unknown
+ * dates and an error. The missing and unknown samples link to made-up pages,
+ * because only how the links look matters.
  *
- * The missing and unknown samples link to made-up pages, so those links don't
- * open anything real. Only how they look matters.
+ * `pnpm test.alert` runs it with `SLACK_WEBHOOK_URL` from `.env`. Point that
+ * webhook at the test channel, because the samples look like real messages.
+ * Without a webhook URL, the script prints each sample instead.
+ *
+ * Each send logs whether Slack accepted it. A send that Slack rejects stops
+ * the script, so the samples after it don't go out.
  *
  * Usage: SLACK_WEBHOOK_URL=https://hooks.slack.com/... node tests/send-test-alert.mjs
  */
+import { createLogger } from '../src/logger.mjs'
 import {
 	sendError,
 	sendMissing,
@@ -20,15 +23,25 @@ import {
 } from '../src/slack.mjs'
 
 /**
- * Slack webhook from `.env`. Empty prints the samples instead.
+ * Slack webhook from `.env`.
+ *
+ * Without one, the logger prints each sample instead of sending it.
  */
 const webhookUrl = process.env.SLACK_WEBHOOK_URL || ''
 
 /**
+ * Always verbose, unlike the CLIs, so it prints each sample when there's no
+ * webhook URL.
+ *
+ * Every sample value is written in this file, so none of them is Sheet data.
+ */
+const logger = createLogger(true)
+
+/**
  * A sample watchdog on the property the Integration Test uses.
  *
- * Its name has an umlaut and an emoji, so the samples show how Slack renders
- * both in a title.
+ * Its name has an umlaut and an emoji, to show how Slack renders both in a
+ * title.
  *
  * @type {import('../src/watchdog.mjs').Watchdog}
  */
@@ -44,30 +57,38 @@ const watchdog = {
 	min_nights: 4,
 }
 
-console.log('Sending test stretch message...')
-await sendStretches(webhookUrl, watchdog, [
-	{ start: '2026-07-10', end: '2026-07-17', nights: 7 },
-	{ start: '2026-07-20', end: '2026-07-25', nights: 5 },
-])
-console.log('Stretch message sent!')
+logger.log('Sending test stretch message...')
+await sendStretches(
+	webhookUrl,
+	watchdog,
+	[
+		{ start: '2026-07-10', end: '2026-07-17', nights: 7 },
+		{ start: '2026-07-20', end: '2026-07-25', nights: 5 },
+	],
+	logger,
+)
 
-console.log('\nSending test missing message...')
+logger.log('\nSending test missing message...')
 await sendMissing(
 	webhookUrl,
 	watchdog,
 	'https://www.booking.com/city/at/test-town.html',
+	logger,
 )
-console.log('Missing message sent!')
 
-console.log('\nSending test unknown message...')
+logger.log('\nSending test unknown message...')
 await sendUnknown(
 	webhookUrl,
 	watchdog,
 	{ unknown: 15, total: 212 },
 	'https://github.com/test-owner/bookdog/actions/runs/1234',
+	logger,
 )
-console.log('Unknown message sent!')
 
-console.log('\nSending test error message...')
-await sendError(webhookUrl, watchdog, 'page.goto: Timeout 30000ms exceeded.')
-console.log('Error message sent!')
+logger.log('\nSending test error message...')
+await sendError(
+	webhookUrl,
+	watchdog,
+	'page.goto: Timeout 30000ms exceeded.',
+	logger,
+)

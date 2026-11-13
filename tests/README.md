@@ -69,3 +69,5 @@ node tests/save-snapshot.mjs <booking-url> <output-name>
 - The scraper waits up to 5 seconds for a room table or the no-availability message. A page under `/hotel/` with neither uses all 5, which makes the `no-room-table.html` test slow. A page that moves to a city page ends the wait once it leaves `/hotel/`. Give each test only the dates it needs.
 - A second try needs 10 dates or more, because 1 unknown date of 9 is already more than 10%. Each worker pauses 1.5 to 3.5 seconds between its loads, so those tests pass `scrapeAvailability` a `pause` that returns at once.
 - Logic tests call pure functions and need nothing else.
+- `scrapeAvailability` and `runWatchdog` take a logger. `createLogger(false)` prints what a GitHub log shows, and `createLogger(true)` prints what a check on the owner's machine shows.
+- The `public log` tests run checks with known names, ids, URLs, dates and error messages. They fail if the GitHub log shows any of them, or if the verbose log misses one. Two tests in `watchdog.test.mjs` pin the whole GitHub log of a check, so a new `logger.log` line can break them. That's on purpose. It makes you check the line holds no Sheet data.

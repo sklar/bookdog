@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { json } from 'node:stream/consumers'
 import { after, before, beforeEach, describe, it } from 'node:test'
+import { format } from 'node:util'
 import { dateRange } from '../src/dates.mjs'
+import { createLogger } from '../src/logger.mjs'
 import { runWatchdog } from '../src/watchdog.mjs'
 
 /**
@@ -23,15 +25,21 @@ const WATCHDOG = {
 }
 
 /**
- * The available check-ins for free nights Jul 1 to 5. With a minimum of 3, the
- * last of them is Jul 3.
+ * The available check-ins for free nights Jul 1 to 5.
+ *
+ * With a minimum of 3, the last of them is Jul 3.
  */
 const FIVE_NIGHT_CHECK_INS = ['2026-07-01', '2026-07-02', '2026-07-03']
+
+/**
+ * The stretch that `FIVE_NIGHT_CHECK_INS` make, 5 nights from Jul 1.
+ */
 const FIVE_NIGHT_STRETCH = { start: '2026-07-01', end: '2026-07-06', nights: 5 }
 
 /**
- * The stretch message for `FIVE_NIGHT_STRETCH`. Its link asks for the
- * watchdog's guests, each child aged 13.
+ * The stretch message for `FIVE_NIGHT_STRETCH`.
+ *
+ * Its link asks for the watchdog's guests, each child aged 13.
  */
 const STRETCH_MESSAGE = [
 	'*Test Property*',
@@ -46,6 +54,9 @@ const STRETCH_MESSAGE = [
  *
  * A date in neither list is sold out, and a date in both is available. `calls`
  * on the returned function keeps what each call asked for.
+ *
+ * It ignores the logger and prints nothing, unlike the real scrape. So a test
+ * that pins the whole log sees only the lines of `runWatchdog`.
  *
  * @param {string[]} [availableDates] Dates that come back available.
  * @param {string[]} [unknownDates] Dates that come back unknown.
@@ -73,19 +84,24 @@ function fakeScrape(availableDates = [], unknownDates = []) {
 	return Object.assign(scrape, { calls })
 }
 
-// Booking sends the page of a missing property to a city page
+/**
+ * The city page where Booking sends the page of a missing property.
+ */
 const CITY_URL = 'https://www.booking.com/city/xx/test-town.html'
 
 /**
- * Stands in for the scrape of a missing property, whose page went to
- * `CITY_URL`.
+ * Stands in for the scrape of a missing property.
  *
+ * @param {string} [finalUrl] Where the property's page went.
  * @returns {import('../src/watchdog.mjs').Scrape} The fake scrape.
  */
-function fakeMissingScrape() {
-	return async () => ({ missing: true, finalUrl: CITY_URL })
+function fakeMissingScrape(finalUrl = CITY_URL) {
+	return async () => ({ missing: true, finalUrl })
 }
 
+/**
+ * The missing message for `WATCHDOG`, with a link to `CITY_URL`.
+ */
 const MISSING_MESSAGE = [
 	'🚧 *Test Property*',
 	'test-id',
@@ -100,8 +116,10 @@ const WORKFLOW_RUN_URL =
 	'https://github.com/test-owner/bookdog/actions/runs/1234'
 
 /**
- * The unknown message for 1 unknown date of the 5 in `WATCHDOG`. That's 20%,
- * above the limit of 10%.
+ * The message about too many unknown dates, for 1 unknown date of the 5 in
+ * `WATCHDOG`.
+ *
+ * That's 20%, above the limit of 10%.
  */
 const UNKNOWN_MESSAGE = [
 	'🚧 *Test Property*',
@@ -111,8 +129,9 @@ const UNKNOWN_MESSAGE = [
 ].join('\n')
 
 /**
- * Stands in for a scrape of `WATCHDOG` with too many unknown dates. Jul 3 is
- * unknown and the other 4 dates are sold out, so the check sends
+ * Stands in for a scrape of `WATCHDOG` with too many unknown dates.
+ *
+ * Jul 3 is unknown and the other 4 dates are sold out, so the check sends
  * `UNKNOWN_MESSAGE`.
  *
  * @returns {import('../src/watchdog.mjs').Scrape} The fake scrape.
@@ -181,14 +200,31 @@ function storedState(alertedStretches) {
 	}
 }
 
-// A local stand-in for the Slack webhook. It records the text of each message
-// in `slackMessages`. It answers each message with the next status in
-// `slackStatuses`, then with `slackStatus` once that list is empty.
-// `beforeEach` resets all three, with `slackStatus` at 200.
+/**
+ * A local stand-in for the Slack webhook, one for the whole file.
+ */
 let slackServer
+
+/**
+ * Where the stand-in listens. `run` passes it as the webhook URL.
+ */
 let slackUrl
+
+/**
+ * The text of each message the stand-in got in this test, in order.
+ */
 let slackMessages
+
+/**
+ * What the stand-in answers once `slackStatuses` is empty. 200 unless the test
+ * sets it.
+ */
 let slackStatus
+
+/**
+ * What the stand-in answers to the next messages, one status each. Empty
+ * unless the test fills it.
+ */
 let slackStatuses
 
 before(async () => {
@@ -217,8 +253,8 @@ beforeEach(() => {
  * Checks `WATCHDOG` on 2026-06-15.
  *
  * Unless `overrides` says otherwise, the scrape finds every date sold out,
- * state starts empty in memory, and messages go to the local Slack with a
- * workflow run link.
+ * state starts empty in memory, messages go to the local Slack with a workflow
+ * run link, and the log isn't verbose, as on GitHub.
  *
  * @param {object} [overrides] Options of `runWatchdog` that replace these.
  * @returns {Promise<'red' | 'green'>} The colour of the check.
@@ -232,8 +268,25 @@ function run(overrides = {}) {
 		webhookUrl: slackUrl,
 		workflowRunUrl: WORKFLOW_RUN_URL,
 		isDryRun: false,
+		logger: createLogger(false),
 		...overrides,
 	})
+}
+
+/**
+ * Keeps every line printed through any console method.
+ *
+ * It catches a line that skips the logger too. The mocks end with the test.
+ *
+ * @param {import('node:test').TestContext} t
+ * @returns {string[]} The lines, filled as the test runs.
+ */
+function captureConsole(t) {
+	const lines = []
+	for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
+		t.mock.method(console, method, (...args) => lines.push(format(...args)))
+	}
+	return lines
 }
 
 describe('dates asked for', () => {
@@ -353,10 +406,10 @@ describe('invalid watchdog', () => {
 		'🚧 *Test Property*\ntest-id\n```The window has an impossible date, or its start is after its end.```'
 	const LONG_WINDOW_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The window is longer than 500 days.```'
+	// Only a watchdog from `WATCHDOG_CONFIG` or a test can get the three errors
+	// below. `config.mjs` gives a bad Sheet cell its default.
 	const MIN_NIGHTS_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The minimum nights must be a whole number of at least 1.```'
-	// Only a watchdog passed in directly can have these. `config.mjs` gives a bad
-	// Sheet cell its default.
 	const ADULTS_ERROR =
 		'🚧 *Test Property*\ntest-id\n```The number of adults must be a whole number of at least 1.```'
 	const CHILDREN_ERROR =
@@ -581,7 +634,7 @@ describe('stretches', () => {
 
 describe('date results', () => {
 	it('an unknown date ends a stretch, and the log counts each result', async (t) => {
-		const log = t.mock.method(console, 'log', () => {})
+		const printed = captureConsole(t)
 		// Jul 1 and 3 available, Jul 2 unknown, Jul 4 to 10 sold out
 		await run({
 			watchdog: TEN_DATE_WATCHDOG,
@@ -590,7 +643,6 @@ describe('date results', () => {
 		assert.equal(slackMessages.length, 1)
 		assert.match(slackMessages[0], /2026-07-01 → 2026-07-04> 3 nights\n/)
 		assert.match(slackMessages[0], /2026-07-03 → 2026-07-06> 3 nights$/)
-		const printed = log.mock.calls.map((call) => call.arguments[0])
 		assert.ok(
 			printed.includes(
 				'   Dates checked: 10 — 2 available, 7 sold out, 1 unknown',
@@ -695,39 +747,53 @@ describe('missing property', () => {
 })
 
 describe('dry run', () => {
-	// Without the dry run, each case sends a Slack message, and the new stretch
-	// also writes state
+	/**
+	 * `WATCHDOG` with a window that starts after it ends.
+	 *
+	 * `validateWatchdog` throws on it, so the check ends in the error message.
+	 */
+	const REVERSED_WINDOW = {
+		...WATCHDOG,
+		checkin_date: '2026-05-10',
+		checkout_date: '2026-05-01',
+	}
+
+	/**
+	 * One check for each Slack message.
+	 *
+	 * Without the dry run, each check sends its message, and the new stretch
+	 * also writes state.
+	 */
 	const cases = [
 		{
 			title: 'a reversed window',
-			overrides: {
-				watchdog: {
-					...WATCHDOG,
-					checkin_date: '2026-05-10',
-					checkout_date: '2026-05-01',
-				},
-			},
+			overrides: { watchdog: REVERSED_WINDOW },
+			message: 'error',
 			result: 'red',
 		},
 		{
 			title: 'a new stretch',
 			overrides: { scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
+			message: 'stretch',
 			result: 'green',
 		},
 		{
 			title: 'a missing property',
 			overrides: { scrape: fakeMissingScrape() },
+			message: 'missing',
 			result: 'red',
 		},
 		{
 			title: 'too many unknown dates',
 			overrides: { scrape: fakeTooManyUnknownScrape() },
+			message: 'unknown',
 			result: 'red',
 		},
 	]
 
-	for (const { title, overrides, result } of cases) {
-		it(`with ${title} sends nothing, writes no state and returns ${result}`, async () => {
+	for (const { title, overrides, message, result } of cases) {
+		it(`with ${title} sends nothing, writes no state, logs the ${message} message it skips last and returns ${result}`, async (t) => {
+			const printed = captureConsole(t)
 			const stateStore = memoryState()
 			assert.equal(
 				await run({ ...overrides, stateStore, isDryRun: true }),
@@ -735,11 +801,19 @@ describe('dry run', () => {
 			)
 			assert.deepEqual(slackMessages, [])
 			assert.deepEqual(stateStore.writes, [])
+			assert.equal(
+				printed.at(-1),
+				`[DRY RUN] Would send the ${message} message.`,
+				printed.join('\n'),
+			)
 		})
 	}
 })
 
 describe('errors', () => {
+	/**
+	 * The error message after the local Slack answers a message with 500.
+	 */
 	const SLACK_ERROR_MESSAGE =
 		'🚧 *Test Property*\ntest-id\n```Slack webhook failed: 500 nope```'
 
@@ -794,12 +868,63 @@ describe('errors', () => {
 	})
 
 	it('an unreachable Slack returns red', async () => {
+		// Fetch refuses port 1 before it connects, which fails the send just the
+		// same
 		const result = await run({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			webhookUrl: 'http://127.0.0.1:1',
 		})
 		assert.equal(result, 'red')
 	})
+
+	/**
+	 * The message of the error the Sheets client throws when it can't reach
+	 * Google, shortened.
+	 *
+	 * The message ends in the reason. The error's cause has the same message,
+	 * so `describeError` shows it once.
+	 */
+	const SHEETS_MESSAGE =
+		'request to https://sheets.googleapis.com/v4/spreadsheets failed, reason: connect ECONNREFUSED'
+
+	/**
+	 * Values that a check can catch, and the text of each in the error message.
+	 *
+	 * The fake scrape throws each one. The Sheets client really runs in the
+	 * state store, but the error message doesn't depend on where the value came
+	 * from.
+	 */
+	const caughtValues = [
+		{
+			title: 'the error message adds the cause of a fetch error',
+			err: new TypeError('fetch failed', {
+				cause: new Error('connect ECONNREFUSED 127.0.0.1:443'),
+			}),
+			text: 'fetch failed (connect ECONNREFUSED 127.0.0.1:443)',
+		},
+		{
+			title: 'the error message shows the cause of a Sheets client error once',
+			err: new Error(SHEETS_MESSAGE, { cause: new Error(SHEETS_MESSAGE) }),
+			text: SHEETS_MESSAGE,
+		},
+		{
+			title: 'the error message shows a thrown string as it is',
+			err: 'boom',
+			text: 'boom',
+		},
+	]
+
+	for (const { title, err, text } of caughtValues) {
+		it(title, async () => {
+			const scrape = async () => {
+				throw err
+			}
+			assert.equal(await run({ scrape }), 'red')
+			assert.deepEqual(slackMessages, [
+				`🚧 *Test Property*\ntest-id\n\`\`\`${text}\`\`\``,
+			])
+		})
+	}
 })
 
 describe('watchdog with no name', () => {
@@ -839,15 +964,157 @@ describe("a check on the owner's machine", () => {
 		assert.equal(slackMessages.length, 2)
 	})
 
-	it('with no webhook URL, prints the message and posts nothing', async (t) => {
-		const log = t.mock.method(console, 'log', () => {})
+	it('with no webhook URL, prints the message, posts nothing and says so', async (t) => {
+		const printed = captureConsole(t)
 		const result = await run({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			webhookUrl: '',
+			logger: createLogger(true),
 		})
 		assert.equal(result, 'green')
 		assert.deepEqual(slackMessages, [])
-		const printed = log.mock.calls.map((call) => call.arguments[0])
-		assert.ok(printed.includes(STRETCH_MESSAGE))
+		assert.ok(printed.includes(STRETCH_MESSAGE), printed.join('\n'))
+		assert.ok(
+			printed.includes('   No Slack webhook URL, so the message was not sent.'),
+			printed.join('\n'),
+		)
+		assert.ok(!printed.includes('   Slack message sent.'), printed.join('\n'))
+	})
+})
+
+describe('public log', () => {
+	/**
+	 * `WATCHDOG` with an id, name and URL that are easy to find in a log.
+	 */
+	const PRIVATE_WATCHDOG = {
+		...WATCHDOG,
+		id: 'hidden-id',
+		name: 'Hidden Name',
+		property_url: 'https://www.booking.com/hotel/xx/hidden-house.html',
+	}
+
+	/**
+	 * Where the page of `PRIVATE_WATCHDOG` goes when the property is missing.
+	 */
+	const HIDDEN_CITY_URL = 'https://www.booking.com/city/xx/hidden-town.html'
+
+	/**
+	 * An error as Playwright throws it, with the page's URL in its message.
+	 */
+	const SCRAPE_ERROR = new Error(
+		'page.goto: Timeout 30000ms exceeded.\n  - navigating to "https://www.booking.com/hotel/xx/hidden-house.html?checkin=2026-07-01"',
+	)
+
+	/**
+	 * A webhook URL on a port that was free a moment ago, so nothing listens.
+	 *
+	 * Fetch fails there with `fetch failed`, and the error's cause says why.
+	 * Port 1 won't do here, because fetch refuses it as a bad port, and the
+	 * cause then says only that.
+	 */
+	let unreachableUrl
+
+	before(async () => {
+		const server = createServer()
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+		unreachableUrl = `http://127.0.0.1:${server.address().port}`
+		await new Promise((resolve) => server.close(resolve))
+	})
+
+	/**
+	 * Values that a public log must not show.
+	 *
+	 * They are the watchdog's name, URL, id and dates, the final URL and the
+	 * error message. The dates are the window's start and end and the end of
+	 * `FIVE_NIGHT_STRETCH`.
+	 */
+	const PRIVATE_VALUES = [
+		'hidden-id',
+		'Hidden Name',
+		'hidden-house',
+		'hidden-town',
+		'2026-07-01',
+		'2026-07-06',
+		'2026-07-08',
+		'Timeout 30000ms exceeded',
+	]
+
+	/**
+	 * Checks `PRIVATE_WATCHDOG` once for each line that shows more when the
+	 * log is verbose.
+	 *
+	 * The seven checks send a stretch message, find a stretch with no webhook
+	 * URL, find one on a dry run, find the property missing, find too many
+	 * unknown dates, catch a scrape error and fail to reach Slack. The last
+	 * one catches an error with a cause.
+	 *
+	 * @param {import('node:test').TestContext} t
+	 * @param {boolean} verbose `true` as on the owner's machine.
+	 * @returns {Promise<string>} Everything the checks printed.
+	 */
+	async function logOfChecks(t, verbose) {
+		const lines = captureConsole(t)
+		const throwingScrape = async () => {
+			throw SCRAPE_ERROR
+		}
+		const checks = [
+			{ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
+			{ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS), webhookUrl: '' },
+			{ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS), isDryRun: true },
+			{ scrape: fakeMissingScrape(HIDDEN_CITY_URL) },
+			{ scrape: fakeTooManyUnknownScrape() },
+			{ scrape: throwingScrape },
+			{ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS), webhookUrl: unreachableUrl },
+		]
+		for (const overrides of checks) {
+			await run({
+				watchdog: PRIVATE_WATCHDOG,
+				logger: createLogger(verbose),
+				...overrides,
+			})
+		}
+		return lines.join('\n')
+	}
+
+	it('a check with no stretches logs the counts, one line about stretches and the state write', async (t) => {
+		const printed = captureConsole(t)
+		await run()
+		assert.deepEqual(printed, [
+			'   Dates checked: 5 — 0 available, 5 sold out, 0 unknown',
+			'   Stretches found: 0',
+			'   State updated.',
+		])
+	})
+
+	it('a new stretch logs that Slack accepted the message', async (t) => {
+		const printed = captureConsole(t)
+		await run({ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
+		assert.deepEqual(printed, [
+			'   Dates checked: 5 — 3 available, 2 sold out, 0 unknown',
+			'   Stretches found: 1',
+			'   Slack message sent.',
+			'   State updated.',
+		])
+	})
+
+	it('with verbose off, as on GitHub, shows no name, URL, id, date or error message', async (t) => {
+		const log = await logOfChecks(t, false)
+		for (const value of PRIVATE_VALUES) {
+			assert.ok(!log.includes(value), `The log shows ${value}:\n${log}`)
+		}
+		// The thrown error still gets its line, with only its name
+		assert.match(log, /^Check failed: Error$/m)
+	})
+
+	it("with verbose on, as on the owner's machine, shows each of them", async (t) => {
+		const log = await logOfChecks(t, true)
+		for (const value of PRIVATE_VALUES) {
+			assert.ok(log.includes(value), `The log lacks ${value}:\n${log}`)
+		}
+		// The error's cause says why fetch failed
+		assert.match(
+			log,
+			/^Check failed: fetch failed \(connect ECONNREFUSED 127\.0\.0\.1:\d+\)$/m,
+		)
 	})
 })

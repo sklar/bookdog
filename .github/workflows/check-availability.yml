@@ -11,8 +11,12 @@ on:
         default: false
 
 jobs:
-  fetch-config:
+  # The repo and its logs are public, so this job outputs only the numbers of
+  # the enabled Sheet rows. Each check job reads its watchdog from its own row.
+  list-rows:
     runs-on: ubuntu-26.04
+    outputs:
+      rows: ${{ steps.rows.outputs.rows }}
     steps:
       - name: Random delay
         run: sleep $((RANDOM % 3600))
@@ -32,42 +36,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Fetch config
+      - name: List enabled rows
+        id: rows
         run: node src/config.mjs
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
 
-      - name: Upload matrix
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: matrix
-          path: matrix.json
-
-  load-config:
-    needs: fetch-config
-    runs-on: ubuntu-26.04
-    outputs:
-      matrix: ${{ steps.config.outputs.matrix }}
-    steps:
-      - name: Download matrix
-        uses: actions/download-artifact@v8.0.2
-        with:
-          name: matrix
-
-      - name: Set matrix output
-        id: config
-        run: echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"
-
   check:
-    needs: load-config
-    if: needs.load-config.outputs.matrix != '[]'
+    needs: list-rows
+    if: needs.list-rows.outputs.rows != '[]'
+    name: Check row ${{ matrix.row }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        watchdog: ${{ fromJson(needs.load-config.outputs.matrix) }}
+        row: ${{ fromJson(needs.list-rows.outputs.rows) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -90,7 +75,7 @@ jobs:
       - name: Check availability
         run: node src/check.mjs
         env:
-          WATCHDOG_CONFIG: ${{ toJson(matrix.watchdog) }}
+          WATCHDOG_ROW: ${{ matrix.row }}
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

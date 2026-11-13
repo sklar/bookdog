@@ -5,6 +5,9 @@
  * Each message starts with the watchdog's title and ID. Every send except
  * `sendError` throws when Slack fails, and `runWatchdog` then sends the error
  * message.
+ *
+ * The messages hold Sheet data. Without a webhook URL, only a verbose logger
+ * prints them, and the public log says only that no message went out.
  */
 
 import { buildBookingUrl } from './booking.mjs'
@@ -13,8 +16,8 @@ import { buildBookingUrl } from './booking.mjs'
  * Longest wait, in ms, for Slack to answer one message.
  *
  * Node's fetch waits up to 5 minutes for an answer. A Slack that hangs costs
- * two waits, one for the message and one for the error message, and the job
- * limit is 15 minutes.
+ * two waits, one for the message and one for the error message, and the check
+ * job has `timeout-minutes: 15`.
  */
 const SLACK_TIMEOUT_MS = 10_000
 
@@ -41,8 +44,9 @@ function humanizeName(propertyUrl) {
 }
 
 /**
- * Returns the watchdog's name, which titles each message. A watchdog with no
- * name gets a title from its URL.
+ * Returns the title of each message about the watchdog.
+ *
+ * It's the watchdog's name, or a title from its URL when the name is blank.
  *
  * @param {import('./watchdog.mjs').Watchdog} watchdog
  * @returns {string} The title.
@@ -52,11 +56,11 @@ function titleOf(watchdog) {
 }
 
 /**
- * Builds the first two lines of a message about a problem. The first is the
- * title after 🚧, the second the watchdog's ID.
+ * Builds the first two lines of a message about a problem.
  *
- * The missing, unknown and error messages start with them. The stretch message
- * has the same two lines without the 🚧.
+ * The first is the title after 🚧, the second the watchdog's ID. The missing,
+ * unknown and error messages start with them. The stretch message has the same
+ * two lines without the 🚧.
  *
  * @param {import('./watchdog.mjs').Watchdog} watchdog
  * @returns {string[]} The two lines.
@@ -66,21 +70,26 @@ function problemHeader(watchdog) {
 }
 
 /**
- * Posts one message to the webhook.
+ * Posts one message to the webhook, and logs that Slack accepted it.
+ *
+ * Without a webhook URL, it logs that the message wasn't sent. A verbose
+ * logger then prints the message, so a check on the owner's machine shows it.
  *
  * Throws on a network failure, on an answer outside 2xx and when Slack doesn't
  * answer within `SLACK_TIMEOUT_MS`. An answer outside 2xx gives an error with
  * the status and Slack's reply, such as `404 no_service`.
  *
- * @param {string} webhookUrl Slack webhook. An empty string prints the message
- *   instead.
+ * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {string} text The message.
- * @returns {Promise<void>} Resolves after Slack accepts the message, or after
- *   the print.
+ * @param {import('./logger.mjs').Logger} logger Prints whether the message
+ *   went out.
+ * @returns {Promise<void>} Resolves after Slack accepts the message, or at once
+ *   without a webhook URL.
  */
-async function post(webhookUrl, text) {
+async function post(webhookUrl, text, logger) {
 	if (!webhookUrl) {
-		console.log(text)
+		logger.log('   No Slack webhook URL, so the message was not sent.')
+		logger.detail(text)
 		return
 	}
 
@@ -94,23 +103,26 @@ async function post(webhookUrl, text) {
 	if (!res.ok) {
 		throw new Error(`Slack webhook failed: ${res.status} ${await res.text()}`)
 	}
+	logger.log('   Slack message sent.')
 }
 
 /**
- * Sends one message that lists the new stretches. Each line links to Booking
- * with the dates of that stretch and the watchdog's guests.
+ * Sends one message that lists the new stretches.
+ *
+ * Each line links to Booking with the dates of that stretch and the
+ * watchdog's guests.
  *
  * Throws when the send fails. `runWatchdog` then writes no state, so the next
  * check sends these stretches again.
  *
- * @param {string} webhookUrl Slack webhook. An empty string prints the message
- *   instead.
+ * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {import('./watchdog.mjs').Watchdog} watchdog With `adults` and
  *   `children` filled in.
  * @param {import('./watchdog.mjs').Stretch[]} stretches The new stretches.
+ * @param {import('./logger.mjs').Logger} logger Passed on to `post`.
  * @returns {Promise<void>} Resolves after the send.
  */
-export async function sendStretches(webhookUrl, watchdog, stretches) {
+export async function sendStretches(webhookUrl, watchdog, stretches, logger) {
 	const { id, property_url, adults, children } = watchdog
 
 	const stretchLines = stretches
@@ -133,7 +145,7 @@ export async function sendStretches(webhookUrl, watchdog, stretches) {
 		stretchLines,
 	].join('\n')
 
-	await post(webhookUrl, text)
+	await post(webhookUrl, text, logger)
 }
 
 /**
@@ -145,20 +157,20 @@ export async function sendStretches(webhookUrl, watchdog, stretches) {
  * Throws when the send fails. The message comes again with the next check
  * anyway, as long as the property stays missing.
  *
- * @param {string} webhookUrl Slack webhook. An empty string prints the message
- *   instead.
+ * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {import('./watchdog.mjs').Watchdog} watchdog
  * @param {string} finalUrl Where Booking sent the property's page.
+ * @param {import('./logger.mjs').Logger} logger Passed on to `post`.
  * @returns {Promise<void>} Resolves after the send.
  */
-export async function sendMissing(webhookUrl, watchdog, finalUrl) {
+export async function sendMissing(webhookUrl, watchdog, finalUrl, logger) {
 	const text = [
 		...problemHeader(watchdog),
 		`Booking no longer has this property. It sends visitors to <${finalUrl}>.`,
 		'To stop this message, set enabled=FALSE in the Sheet.',
 	].join('\n')
 
-	await post(webhookUrl, text)
+	await post(webhookUrl, text, logger)
 }
 
 /**
@@ -173,8 +185,7 @@ export async function sendMissing(webhookUrl, watchdog, finalUrl) {
  * Throws when the send fails. `runWatchdog` then writes no state, so a stretch
  * message from the same check comes again with the next check.
  *
- * @param {string} webhookUrl Slack webhook. An empty string prints the message
- *   instead.
+ * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {import('./watchdog.mjs').Watchdog} watchdog
  * @param {object} counts Passed by name, so the two counts can't swap.
  * @param {number} counts.unknown Unknown dates.
@@ -182,6 +193,7 @@ export async function sendMissing(webhookUrl, watchdog, finalUrl) {
  * @param {string | null} workflowRunUrl Workflow run on GitHub. `null` on the
  *   owner's machine, which has no workflow run. The message then has no link
  *   line.
+ * @param {import('./logger.mjs').Logger} logger Passed on to `post`.
  * @returns {Promise<void>} Resolves after the send.
  */
 export async function sendUnknown(
@@ -189,6 +201,7 @@ export async function sendUnknown(
 	watchdog,
 	{ unknown, total },
 	workflowRunUrl,
+	logger,
 ) {
 	const lines = [
 		...problemHeader(watchdog),
@@ -196,29 +209,31 @@ export async function sendUnknown(
 	]
 	if (workflowRunUrl) lines.push(`<${workflowRunUrl}|Workflow run>`)
 
-	await post(webhookUrl, lines.join('\n'))
+	await post(webhookUrl, lines.join('\n'), logger)
 }
 
 /**
  * Sends the message for an error, with the error text in a code block.
  *
  * Never throws. `runWatchdog` calls it from its `catch`, often after Slack
- * itself failed. When this send fails too, only the log shows it.
+ * itself failed. When this send fails too, only the log shows it, and on
+ * GitHub the log shows only the error's name.
  *
- * @param {string} webhookUrl Slack webhook. An empty string prints the message
- *   instead.
+ * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {import('./watchdog.mjs').Watchdog} watchdog
- * @param {string} errorMessage Text of the caught error.
+ * @param {string} errorMessage The caught error, as `describeError` gives it.
+ * @param {import('./logger.mjs').Logger} logger Prints whether the message
+ *   went out, and the error when it didn't.
  * @returns {Promise<void>} Resolves after the send, or after it failed.
  */
-export async function sendError(webhookUrl, watchdog, errorMessage) {
+export async function sendError(webhookUrl, watchdog, errorMessage, logger) {
 	const text = [...problemHeader(watchdog), `\`\`\`${errorMessage}\`\`\``].join(
 		'\n',
 	)
 
 	try {
-		await post(webhookUrl, text)
+		await post(webhookUrl, text, logger)
 	} catch (err) {
-		console.error(`Error message not sent: ${err.message}`)
+		logger.error('Error message not sent', err)
 	}
 }

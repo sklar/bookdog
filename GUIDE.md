@@ -31,7 +31,7 @@ The watchdog ignores everything after `?` in the URL. A URL copied from a Bookin
 Without a name, the Slack messages take their title from the URL: `grand-hotel.en-gb.html` gives "Grand Hotel".
 
 ### Edit a watchdog
-Open the Google Sheet directly. Set `enabled` to `FALSE` to pause, or delete the row.
+Open the Google Sheet directly. Set `enabled` to `FALSE` to pause, or delete the row. Deleting a row moves the rows below it up, so their check jobs get new [row numbers](#logs).
 
 ### Window
 The check-in and check-out dates in the form set the window, and every stay fits inside it. The first check-in is the window's start or today in UTC, whichever is later. The last check-in is the window's end minus minimum nights. With Jul 1 to Jul 10 and a minimum of 3, that's Jul 7, and the stay checks out on Jul 10.
@@ -52,7 +52,7 @@ For each check-in date, the watchdog loads the property page with a stay of the 
 - **Sold out.** Every room says "not available", or Booking shows its "We have no availability here" message where the room table would be.
 - **Unknown.** Anything else, such as a page that fails to load, a block page under `/hotel/`, or a property page that Booking has changed.
 
-A sold out or unknown date ends a stretch, so a message never covers a night the watchdog couldn't verify. The log counts how many dates got each result. A check on your machine also logs each date, with the reason when it's unknown.
+A sold out or unknown date ends a stretch, so a message never covers a night the watchdog couldn't verify. The log counts how many dates got each result. A check on your machine also logs each date, with the reason when it's unknown. See [Logs](#logs).
 
 A few unknown dates get a second try. Too many get none, and the watchdog sends a message instead. See [Too many unknown dates](#too-many-unknown-dates).
 
@@ -74,6 +74,11 @@ When more than 10% are unknown, no date loads again, because Booking may be bloc
 
 At exactly 10%, there's no message, and the unknown dates alone don't make the workflow run red.
 
+### Logs
+The repo and its Actions logs are public, so a workflow run logs no Sheet data. Each check job takes its name from its row in the `config` tab, such as "Check row 5". Its log shows the row number, how many dates came out available, sold out and unknown, and how many stretches the watchdog found. It also says when the property is missing or the window is finished. An error shows only its name, such as `TimeoutError`. The Slack messages still name the watchdog and give the stretch dates, links and error messages. A dry run sends no Slack message, so on GitHub you see only the counts and error names.
+
+A check on your machine also logs the watchdog's id, URL, window, minimum nights and guests, each date's result, where a missing property's page goes, and each error message. Put a watchdog in `WATCHDOG_CONFIG` in `.env` and run `pnpm check.dry`. To check a row of the Sheet the way a check job does, run `WATCHDOG_ROW=5 pnpm check.dry`. That needs `GOOGLE_SHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_KEY` in `.env`. When both are set, `WATCHDOG_ROW` wins, so `WATCHDOG_CONFIG` can stay in `.env`.
+
 ### Cron schedule
 The workflow starts daily at 6:00 UTC, then waits a random time of up to an hour. That's 7:00 to 8:00 in Central European winter time and 8:00 to 9:00 in summer time. The cron line is in `.github/workflows/check-availability.yml`.
 
@@ -87,10 +92,12 @@ The workflow starts daily at 6:00 UTC, then waits a random time of up to an hour
 | "Booking no longer has this property" | Open the link in the message. If the property has a new page under `/hotel/`, put its URL in the Sheet. Otherwise set `enabled=FALSE`. See [Missing property](#missing-property) |
 | Error message from the scraper | The browser itself failed, for example after a Playwright update. Run `pnpm test` on your machine. A Booking page that changed doesn't cause this error. Its dates come out unknown instead. See the next two rows |
 | No date is ever available | Open the property URL with a few of the window's dates. If Booking shows rooms there, the watchdog may read those dates as unknown. See the next row |
-| "15 of 212 dates are unknown", or unknown dates in the log | One message can be a bad day at Booking. If it comes back, check on your machine. Put the watchdog's row in `WATCHDOG_CONFIG` in `.env` and run `pnpm check.dry`. Its log shows each date's result and why a date is unknown. If Booking blocks the scraper, the pages fail or have no property mark. If Booking changed its pages, save one with `node tests/save-snapshot.mjs <booking-url> <output-name>`, then update the rules in `scraper.mjs` and the fixtures. See [Too many unknown dates](#too-many-unknown-dates) |
+| "15 of 212 dates are unknown", or unknown dates in the log | One message can be a bad day at Booking. If it comes back, take the row from the job name, such as "Check row 5", and run `WATCHDOG_ROW=5 pnpm check.dry` on your machine. If you deleted a row since then, the [rows below it moved up](#edit-a-watchdog). The local log shows each date's result and why a date is unknown. If Booking blocks the scraper, the pages fail or have no property mark. If Booking changed its pages, save one with `node tests/save-snapshot.mjs <booking-url> <output-name>`, then update the rules in `scraper.mjs` and the fixtures. See [Too many unknown dates](#too-many-unknown-dates) |
 | Loading the `config` tab fails | Check the `GOOGLE_SERVICE_ACCOUNT_KEY` secret, and that the Sheet is shared with the service account |
 | Duplicate alerts | Expected if a stretch went away and came back. See [Alerts](#alerts). A workflow run that sent the message but couldn't write state also repeats it the next day, and sends an error message too. Otherwise check the watchdog's row in the `state` tab of the Google Sheet |
 | Can't see workflow run logs | `cleanup.yml` deletes successful workflow runs, logs included. Failed workflow runs stay, so you can debug them |
+| The log shows only counts, or an error shows only its name | The public log hides Sheet data on purpose. Read the Slack message, or check the row on your machine. See [Logs](#logs) |
+| "Sheet row 5 is no longer an enabled watchdog" | You paused or deleted a row, or cleared a cell a watchdog needs, after the workflow run listed the rows. The next workflow run lists them again |
 
 ## 💰 Free tier budget
 

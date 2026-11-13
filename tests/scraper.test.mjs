@@ -4,15 +4,23 @@ import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { after, before, beforeEach, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { format } from 'node:util'
 import { dateRange } from '../src/dates.mjs'
+import { createLogger } from '../src/logger.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixturesDir = join(__dirname, 'fixtures')
 
-// Loads the scraper and Playwright only if Playwright is installed. Without it,
-// every `describe` below skips itself.
 let scrapeAvailability
 let chromium
+
+/**
+ * `true` once the scraper and Playwright load.
+ *
+ * If either fails to load, every `describe` below skips itself. That's meant
+ * for a machine without Playwright, but an import error in `scraper.mjs` skips
+ * them too.
+ */
 let playwrightAvailable = false
 try {
 	const mod = await import('../src/scraper.mjs')
@@ -24,11 +32,11 @@ try {
 }
 
 /**
- * Tells whether a request is the first for its path and check-in date, so a
- * route can answer a second try differently.
+ * Tells whether a request is the first for its path and check-in date.
  *
- * The server adds each request to `requests` before it calls `route`, so the
- * first load finds exactly one match.
+ * `route` uses it to answer a second try differently. The server adds each
+ * request to `requests` before it calls `route`, so the first load finds
+ * exactly one match.
  *
  * @param {URL} url
  * @returns {boolean} `true` on the first load of the date.
@@ -80,15 +88,29 @@ function route(url) {
 	return { file: pathname.slice(1) }
 }
 
-// The fixture server. It keeps the URL and user agent of each request, so a
-// test can count page loads and check what the scraper asked for.
-//
-// Each test starts a new browser session. Like Booking, the server answers the
-// first page of each test with 202, so a scraper that reads the status fails
-// the tests.
+/**
+ * The fixture server, one for the whole file.
+ *
+ * Each test starts a new browser session. Like Booking, the server answers the
+ * first page of each test with 202, so a scraper that reads the status fails
+ * the tests.
+ */
 let server
+
+/**
+ * Where the fixture server listens, such as `http://127.0.0.1:53124`.
+ */
 let baseUrl
+
+/**
+ * The URL of each request in this test, in order. Tests count page loads with
+ * it and check what the scraper asked Booking for.
+ */
 let requests
+
+/**
+ * The user agent of each request in this test, in order.
+ */
 let userAgents
 
 before(async () => {
@@ -141,8 +163,8 @@ beforeEach(() => {
  * Builds a watchdog for a path on the fixture server.
  *
  * It asks for 2 adults, no children and 3 minimum nights, unless `overrides`
- * says otherwise. It has no window, because the scrape gets its dates passed
- * in.
+ * says otherwise. It has no window, because each test passes the scrape its
+ * dates.
  *
  * @param {string} path Such as `/hotel/available.html`.
  * @param {object} [overrides] Values that replace the defaults.
@@ -160,8 +182,33 @@ function watchdogAt(path, overrides = {}) {
 }
 
 /**
- * Counts the page loads under `/hotel/`. The city page that a missing property
- * goes to doesn't count.
+ * Logger for the tests that don't check the log.
+ *
+ * It isn't verbose, as on GitHub, so the test output has no line for each
+ * date.
+ */
+const ciLogger = createLogger(false)
+
+/**
+ * Keeps every line printed through any console method.
+ *
+ * It catches a line that skips the logger too. The mocks end with the test.
+ *
+ * @param {import('node:test').TestContext} t
+ * @returns {string[]} The lines, filled as the test runs.
+ */
+function captureConsole(t) {
+	const lines = []
+	for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
+		t.mock.method(console, method, (...args) => lines.push(format(...args)))
+	}
+	return lines
+}
+
+/**
+ * Counts the page loads under `/hotel/`.
+ *
+ * The city page that a missing property goes to doesn't count.
  *
  * @returns {number} Requests under `/hotel/` in this test.
  */
@@ -175,13 +222,17 @@ function hotelPageLoads() {
  *
  * @param {string} fixture Page name without `.html`. A fixture file, or a path
  *   that `route` handles, such as `hang-up`.
+ * @param {import('../src/logger.mjs').Logger} [logger] Defaults to
+ *   `ciLogger`.
  * @returns {Promise<import('../src/watchdog.mjs').ScrapeResult>} What the
  *   scrape found.
  */
-function scrapeOneDate(fixture) {
-	return scrapeAvailability(watchdogAt(`/hotel/${fixture}.html`), [
-		'2026-07-01',
-	])
+function scrapeOneDate(fixture, logger = ciLogger) {
+	return scrapeAvailability(
+		watchdogAt(`/hotel/${fixture}.html`),
+		['2026-07-01'],
+		logger,
+	)
 }
 
 describe('scraper against fixtures', {
@@ -224,6 +275,10 @@ describe('scraper against fixtures', {
 describe('unknown dates', {
 	skip: !playwrightAvailable && 'Playwright not available',
 }, () => {
+	/**
+	 * Pages that leave a date unknown, each with the reason that the verbose
+	 * log gives.
+	 */
 	const unknownPages = [
 		{
 			page: 'a priced page under /hotel/ without the property mark',
@@ -248,14 +303,12 @@ describe('unknown dates', {
 	]
 
 	for (const { page, fixture, reason } of unknownPages) {
-		it(`reads ${page} as unknown, and logs why`, async (t) => {
-			const log = t.mock.method(console, 'log', () => {})
-			t.mock.method(console, 'warn', () => {})
-			assert.deepEqual(await scrapeOneDate(fixture), {
+		it(`reads ${page} as unknown, and a verbose log says why`, async (t) => {
+			const printed = captureConsole(t)
+			assert.deepEqual(await scrapeOneDate(fixture, createLogger(true)), {
 				missing: false,
 				dateResults: [{ date: '2026-07-01', result: 'unknown' }],
 			})
-			const printed = log.mock.calls.map((call) => call.arguments[0])
 			assert.ok(
 				printed.includes(`  [1/1] 2026-07-01 — unknown, ${reason}`),
 				printed.join('\n'),
@@ -267,15 +320,25 @@ describe('unknown dates', {
 describe('second try', {
 	skip: !playwrightAvailable && 'Playwright not available',
 }, () => {
+	/**
+	 * The fewest dates that allow a second try. 1 unknown date of 10 is
+	 * exactly 10%, and 1 of 9 is already too many.
+	 */
 	const tenDates = dateRange('2026-07-01', '2026-07-10')
-	// The pause between page loads spares Booking. The fixture server needs no
-	// pause, and with it each of these tests takes about 5 seconds.
+
+	/**
+	 * Skips the pause between page loads, which spares Booking.
+	 *
+	 * The fixture server needs no pause, and with it each of these tests takes
+	 * about 5 seconds.
+	 */
 	const noPause = { pause: async () => {} }
 
 	it('at exactly 10% unknown, the unknown date loads again and the new result replaces the old one', async () => {
 		const result = await scrapeAvailability(
 			watchdogAt('/hotel/unknown-once.html'),
 			tenDates,
+			ciLogger,
 			noPause,
 		)
 		assert.deepEqual(result, {
@@ -290,6 +353,7 @@ describe('second try', {
 		const result = await scrapeAvailability(
 			watchdogAt('/hotel/unknown-once.html'),
 			nineDates,
+			ciLogger,
 			noPause,
 		)
 		assert.deepEqual(result, {
@@ -306,6 +370,7 @@ describe('second try', {
 		const result = await scrapeAvailability(
 			watchdogAt('/hotel/city-on-second-try.html'),
 			tenDates,
+			ciLogger,
 			noPause,
 		)
 		assert.deepEqual(result, {
@@ -324,11 +389,11 @@ describe('missing property', {
 }, () => {
 	it('stops after the first date when its page settles outside /hotel/, without waiting for a room table', async () => {
 		const start = performance.now()
-		const result = await scrapeAvailability(watchdogAt('/hotel/missing.html'), [
-			'2026-07-01',
-			'2026-07-02',
-			'2026-07-03',
-		])
+		const result = await scrapeAvailability(
+			watchdogAt('/hotel/missing.html'),
+			['2026-07-01', '2026-07-02', '2026-07-03'],
+			ciLogger,
+		)
 		const seconds = (performance.now() - start) / 1000
 		assert.deepEqual(result, {
 			missing: true,
@@ -343,6 +408,7 @@ describe('missing property', {
 		const result = await scrapeAvailability(
 			watchdogAt('/hotel/city-after-first.html'),
 			['2026-07-01', '2026-07-02'],
+			ciLogger,
 		)
 		assert.deepEqual(result, {
 			missing: false,
@@ -373,7 +439,7 @@ describe('what each page asks Booking', {
 			children: 2,
 			min_nights: 4,
 		})
-		await scrapeAvailability(watchdog, ['2026-07-01'])
+		await scrapeAvailability(watchdog, ['2026-07-01'], ciLogger)
 		const askedFor = [...requests[0].searchParams].sort()
 		assert.deepEqual(askedFor, [
 			// One age for each child, because Booking doesn't count a child without
@@ -402,5 +468,54 @@ describe('what each page asks Booking', {
 		assert.match(userAgent, new RegExp(` Chrome/${majorVersion}\\.0\\.0\\.0 `))
 		const system = process.platform === 'darwin' ? 'Macintosh' : 'Linux'
 		assert.match(userAgent, new RegExp(system))
+	})
+})
+
+describe('public log', {
+	skip: !playwrightAvailable && 'Playwright not available',
+}, () => {
+	/**
+	 * Scrapes two pages whose log lines hold private values when verbose.
+	 *
+	 * `city-after-first` sends its second date to a city page, so the reason
+	 * for that date holds the final URL. `hang-up` fails, and Playwright's
+	 * error names the URL.
+	 *
+	 * @param {import('node:test').TestContext} t
+	 * @param {boolean} verbose `true` as on the owner's machine.
+	 * @returns {Promise<string>} Everything the scrapes printed.
+	 */
+	async function logOfScrapes(t, verbose) {
+		const printed = captureConsole(t)
+		const logger = createLogger(verbose)
+		await scrapeAvailability(
+			watchdogAt('/hotel/city-after-first.html'),
+			['2026-07-01', '2026-07-02'],
+			logger,
+		)
+		await scrapeOneDate('hang-up', logger)
+		return printed.join('\n')
+	}
+
+	/**
+	 * Values that a public log must not show: the two dates, and the fixture
+	 * server's host, which stands in for Booking's in every URL.
+	 */
+	const PRIVATE_VALUES = ['2026-07-01', '2026-07-02', '127.0.0.1']
+
+	it('with verbose off, as on GitHub, shows no date, URL or error message', async (t) => {
+		const log = await logOfScrapes(t, false)
+		for (const value of PRIVATE_VALUES) {
+			assert.ok(!log.includes(value), `The log shows ${value}:\n${log}`)
+		}
+		assert.match(log, /Scraping 2 dates/)
+	})
+
+	it("with verbose on, as on the owner's machine, shows each of them", async (t) => {
+		const log = await logOfScrapes(t, true)
+		for (const value of PRIVATE_VALUES) {
+			assert.ok(log.includes(value), `The log lacks ${value}:\n${log}`)
+		}
+		assert.match(log, /net::ERR_/)
 	})
 })
