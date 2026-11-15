@@ -28,4 +28,4 @@ Local markdown under `.scratch/`. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
-Use the words in `CONTEXT.md` when naming a domain concept in code, tests or tickets. See `docs/agents/domain.md`.
+Use the words in `GLOSSARY.md` when naming a domain concept in code, tests or tickets. See `docs/agents/domain.md`.
