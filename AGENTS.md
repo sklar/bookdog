@@ -16,6 +16,7 @@ Development workflow: @.agents/rules/workflow.md
 - `mise.toml` pins Node and pnpm on the dev machine only. CI reads `engines.node` and `packageManager`, so change each version in both places.
 - The repo and Actions logs are public. Keep Sheet data out of commits and PR text, and log it only through `logger.detail` or as the `err` of `logger.error`, which hide it on CI.
 - `cleanup.yml` deletes successful Check Availability runs from every branch, logs included. A debug run must exit non-zero to keep its logs.
+- Check Availability's `keepalive` job re-enables workflows on every run, dry runs and every branch included. Only a workflow in `disabled_manually` stays off.
 - `dry_run` also skips Slack error messages. Testing them needs `dry_run=false`.
 - Integration Test has no dry run: it posts to the test Slack channel and can write state.
 
