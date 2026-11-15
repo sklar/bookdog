@@ -81,3 +81,27 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
 
+  # GitHub disables scheduled workflows in a public repo after 60 days without
+  # repository activity. If that happens here, the watchdogs stop and no alert
+  # goes out. This job enables every workflow that is active or was disabled
+  # for inactivity, as GitHub's "Continue running workflow" button does.
+  # GitHub doesn't document that this resets the 60 days. A workflow you
+  # disable by hand is `disabled_manually` and stays off.
+  keepalive:
+    name: Keep workflows enabled
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Enable workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows" --paginate \
+            --jq '.workflows[] | select(.state == "active" or .state == "disabled_inactivity") | [.id, .path, .state] | @tsv' \
+            | while IFS=$'\t' read -r id path state; do
+                gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$id/enable"
+                echo "Enabled $path, was $state"
+              done

@@ -82,6 +82,8 @@ A check on your machine also logs the watchdog's id, URL, window, minimum nights
 ### Cron schedule
 The workflow starts daily at 6:00 UTC, then waits a random time of up to an hour. That's 7:00 to 8:00 in Central European winter time and 8:00 to 9:00 in summer time. The cron line is in `.github/workflows/check-availability.yml`.
 
+GitHub disables scheduled workflows in a public repo after 60 days without activity. If that happens to Check Availability, the watchdogs stop without a message, and that looks the same as a window with nothing free. Each day, its "Keep workflows enabled" job enables the workflows again, as the "Continue running workflow" button does. That includes a workflow GitHub has already disabled for inactivity. GitHub doesn't document that this resets the 60 days. A workflow you disable on the Actions page stays disabled.
+
 ## 🎯 Troubleshooting
 
 | Problem | Fix |
@@ -95,6 +97,7 @@ The workflow starts daily at 6:00 UTC, then waits a random time of up to an hour
 | "15 of 212 dates are unknown", or unknown dates in the log | One message can be a bad day at Booking. If it comes back, take the row from the job name, such as "Check row 5", and run `WATCHDOG_ROW=5 pnpm check.dry` on your machine. If you deleted a row since then, the [rows below it moved up](#edit-a-watchdog). The local log shows each date's result and why a date is unknown. If Booking blocks the scraper, the pages fail or have no property mark. If Booking changed its pages, save one with `node tests/save-snapshot.mjs <booking-url> <output-name>`, then update the rules in `scraper.mjs` and the fixtures. See [Too many unknown dates](#too-many-unknown-dates) |
 | Loading the `config` tab fails | Check the `GOOGLE_SERVICE_ACCOUNT_KEY` secret, and that the Sheet is shared with the service account |
 | Duplicate alerts | Expected if a stretch went away and came back. See [Alerts](#alerts). A workflow run that sent the message but couldn't write state also repeats it the next day, and sends an error message too. Otherwise check the watchdog's row in the `state` tab of the Google Sheet |
+| GitHub emails that a workflow "will be disabled soon", or Check Availability stopped running | Click "Continue running workflow" or "Enable workflow" on the workflow's Actions page. The "Keep workflows enabled" job should prevent this. If it happens anyway, GitHub doesn't count the job's call. See [Cron schedule](#cron-schedule) |
 | Can't see workflow run logs | `cleanup.yml` deletes successful workflow runs, logs included. Failed workflow runs stay, so you can debug them |
 | The log shows only counts, or an error shows only its name | The public log hides Sheet data on purpose. Read the Slack message, or check the row on your machine. See [Logs](#logs) |
 | "Sheet row 5 is no longer an enabled watchdog" | You paused or deleted a row, or cleared a cell a watchdog needs, after the workflow run listed the rows. The next workflow run lists them again |
