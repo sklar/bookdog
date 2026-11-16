@@ -123,15 +123,11 @@ async function post(webhookUrl, text, logger) {
  * @returns {Promise<void>} Resolves after the send.
  */
 export async function sendStretches(webhookUrl, watchdog, stretches, logger) {
-	const { id, property_url, adults, children } = watchdog
-
 	const stretchLines = stretches
 		.map((stretch) => {
-			const url = buildBookingUrl(property_url, {
+			const url = buildBookingUrl(watchdog, {
 				checkin: stretch.start,
 				checkout: stretch.end,
-				adults,
-				children,
 			})
 			return `• <${url}|${stretch.start} → ${stretch.end}> ${stretch.nights} nights`
 		})
@@ -139,7 +135,7 @@ export async function sendStretches(webhookUrl, watchdog, stretches, logger) {
 
 	const text = [
 		`*${titleOf(watchdog)}*`,
-		id,
+		watchdog.id,
 		'',
 		'Found availability:',
 		stretchLines,
