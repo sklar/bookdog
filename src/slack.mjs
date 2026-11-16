@@ -16,8 +16,8 @@ import { buildBookingUrl } from './booking.mjs'
  * Longest wait, in ms, for Slack to answer one message.
  *
  * Node's fetch waits up to 5 minutes for an answer. A Slack that hangs costs
- * two waits, one for the message and one for the error message, and the check
- * job has `timeout-minutes: 15`.
+ * two waits, one for the message and one for the error message. Both must fit
+ * in the check job's `timeout-minutes` in `check-availability.yml`.
  */
 const SLACK_TIMEOUT_MS = 10_000
 

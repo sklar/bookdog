@@ -48,6 +48,9 @@ jobs:
     if: needs.list-rows.outputs.rows != '[]'
     name: Check row ${{ matrix.row }}
     runs-on: ubuntu-26.04
+    # `MAX_WINDOW_DAYS` in validate.mjs, `CONCURRENCY` in scraper.mjs and
+    # `SLACK_TIMEOUT_MS` in slack.mjs are sized for this limit. Check them when
+    # you change it.
     timeout-minutes: 15
     strategy:
       fail-fast: false
