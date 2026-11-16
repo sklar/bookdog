@@ -1,6 +1,6 @@
 /**
  * Works with dates as `YYYY-MM-DD` text, the form they take in the Sheet, the
- * state tab and Booking URLs. `scraper.mjs` and `watchdog.mjs` both use it.
+ * state tab and Booking URLs.
  */
 
 /**
