@@ -47,6 +47,17 @@ export function dateRange(start, end) {
 }
 
 /**
+ * Says whether `text` has the shape `YYYY-MM-DD`. It checks the shape only, so
+ * `2026-13-45` passes. `isRealDate` also checks that the date exists.
+ *
+ * @param {string} text Date from the Sheet.
+ * @returns {boolean} `true` for four digits, two and two, joined by hyphens.
+ */
+export function isIsoFormat(text) {
+	return /^\d{4}-\d{2}-\d{2}$/.test(text)
+}
+
+/**
  * Says whether `text` is a date that exists, written as `YYYY-MM-DD`.
  * `Temporal.PlainDate.from` accepts other formats such as `20260701`, so the
  * format gets its own check.
@@ -55,8 +66,7 @@ export function dateRange(start, end) {
  * @returns {boolean} `true` for a real date written as `YYYY-MM-DD`.
  */
 export function isRealDate(text) {
-	const isIsoFormat = /^\d{4}-\d{2}-\d{2}$/.test(text)
-	if (!isIsoFormat) return false
+	if (!isIsoFormat(text)) return false
 
 	try {
 		Temporal.PlainDate.from(text)

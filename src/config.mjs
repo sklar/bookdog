@@ -16,6 +16,7 @@ import {
 	DEFAULT_CHILDREN,
 	DEFAULT_MIN_NIGHTS,
 } from './constants.mjs'
+import { isIsoFormat } from './dates.mjs'
 import { createLogger, isOutsideCi } from './logger.mjs'
 
 /**
@@ -66,9 +67,9 @@ async function readConfigCells(sheetId, cells, auth) {
  */
 function normalizeDate(val) {
 	if (!val) return ''
-	// Already YYYY-MM-DD. This checks the shape only, so 2026-13-45 passes here,
-	// and the watchdog reports it as an invalid window.
-	if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+	// Already YYYY-MM-DD. A 2026-13-45 passes here, and the watchdog reports it
+	// as an invalid window.
+	if (isIsoFormat(val)) return val
 	// new Date reads `1/2/2026` as January 2, in local time. GitHub runners use
 	// UTC, so the date holds there. East of UTC, a date with no time comes out a
 	// day early.
