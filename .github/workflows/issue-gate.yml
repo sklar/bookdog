@@ -1,0 +1,31 @@
+name: Issues
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  # Issues are on for Renovate, which files its Dependency Dashboard and its
+  # config errors there. Bookdog's own tracker lives in `.scratch/`, so this
+  # job closes any other issue from someone without write access.
+  gate:
+    name: Collaborator gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Check author permission
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ "$AUTHOR" == "renovate[bot]" ]]; then
+            exit 0
+          fi
+          PERM=$(gh api "repos/$REPO/collaborators/$AUTHOR/permission" --jq '.permission' 2>/dev/null || echo "none")
+          if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
+            gh issue close "$ISSUE_URL" --comment "Thanks for stopping by! This repo doesn't accept external issues." --reason "not planned"
+          fi
