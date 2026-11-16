@@ -7,7 +7,7 @@
  *
  * - `config.mjs` uses them for a Sheet cell that is blank, zero, negative or
  *   unreadable.
- * - `watchdog.mjs` uses them for a watchdog passed in directly that leaves a
+ * - `validate.mjs` uses them for a watchdog passed in directly that leaves a
  *   value out, as the Integration Test and local checks can.
  *
  * `GUIDE.md` repeats every number here for the owner. Change both together.
