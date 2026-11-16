@@ -26,7 +26,7 @@ tests/
     │   ├── available.html
     │   ├── sold-out.html               # no-availability message, no room table
     │   ├── partial-availability.html   # priced room last
-    │   ├── all-rooms-unavailable.html
+    │   ├── all-rooms-sold-out.html
     │   ├── no-mark.html                # priced room table, no property mark
     │   ├── no-room-table.html          # property mark only
     │   ├── rows-without-prices.html    # room rows, no price cells, no-availability message

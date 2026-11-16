@@ -265,7 +265,7 @@ describe('scraper against fixtures', {
 	})
 
 	it('reads a date as sold out when every room says "not available"', async () => {
-		assert.deepEqual(await scrapeOneDate('all-rooms-unavailable'), {
+		assert.deepEqual(await scrapeOneDate('all-rooms-sold-out'), {
 			missing: false,
 			dateResults: [{ date: '2026-07-01', result: 'sold-out' }],
 		})
