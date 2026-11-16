@@ -19,6 +19,7 @@ tests/
 ├── stretches.test.mjs    # stretch + dedup logic
 ├── scraper.test.mjs      # Playwright against local fixtures
 ├── watchdog.test.mjs     # one watchdog: fake scrape, in-memory state, local Slack
+├── helpers.mjs           # captureConsole, shared by the test files
 ├── send-test-alert.mjs   # sends the sample Slack messages
 ├── save-snapshot.mjs     # saves a Booking.com page as a fixture
 └── fixtures/

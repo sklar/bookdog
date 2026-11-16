@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { json } from 'node:stream/consumers'
 import { after, before, beforeEach, describe, it } from 'node:test'
-import { format } from 'node:util'
 import { dateRange } from '../src/dates.mjs'
 import { createLogger } from '../src/logger.mjs'
 import { runWatchdog } from '../src/watchdog.mjs'
+import { captureConsole } from './helpers.mjs'
 
 /**
  * The watchdog most tests check.
@@ -100,11 +100,16 @@ function fakeMissingScrape(finalUrl = CITY_URL) {
 }
 
 /**
+ * The first two lines of the missing, unknown and error messages for
+ * `WATCHDOG`.
+ */
+const PROBLEM_HEADER = ['🚧 *Test Property*', 'test-id']
+
+/**
  * The missing message for `WATCHDOG`, with a link to `CITY_URL`.
  */
 const MISSING_MESSAGE = [
-	'🚧 *Test Property*',
-	'test-id',
+	...PROBLEM_HEADER,
 	'Booking no longer has this property. It sends visitors to <https://www.booking.com/city/xx/test-town.html>.',
 	'To stop this message, set enabled=FALSE in the Sheet.',
 ].join('\n')
@@ -122,11 +127,20 @@ const WORKFLOW_RUN_URL =
  * That's 20%, above the limit of 10%.
  */
 const UNKNOWN_MESSAGE = [
-	'🚧 *Test Property*',
-	'test-id',
+	...PROBLEM_HEADER,
 	'1 of 5 dates are unknown. Booking may block the scraper, or the page changed.',
 	'<https://github.com/test-owner/bookdog/actions/runs/1234|Workflow run>',
 ].join('\n')
+
+/**
+ * Builds the error message for `WATCHDOG`.
+ *
+ * @param {string} text The error, as `describeError` gives it.
+ * @returns {string} The message, with `text` in a code block.
+ */
+function errorMessage(text) {
+	return [...PROBLEM_HEADER, `\`\`\`${text}\`\`\``].join('\n')
+}
 
 /**
  * Stands in for a scrape of `WATCHDOG` with too many unknown dates.
@@ -274,19 +288,20 @@ function check(overrides = {}) {
 }
 
 /**
- * Keeps every line printed through any console method.
+ * Checks once on each day, in order, as the daily workflow runs would.
  *
- * It catches a line that skips the logger too. The mocks end with the test.
- *
- * @param {import('node:test').TestContext} t
- * @returns {string[]} The lines, filled as the test runs.
+ * @param {{ today: string, scrape?: import('../src/watchdog.mjs').Scrape }[]}
+ *   days Each day's date, and its scrape when it differs from `overrides`.
+ * @param {object} [overrides] Options of `runWatchdog` for every day, such as
+ *   one `stateStore` that the days share.
+ * @returns {Promise<('red' | 'green')[]>} The colour of each day's check.
  */
-function captureConsole(t) {
-	const lines = []
-	for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
-		t.mock.method(console, method, (...args) => lines.push(format(...args)))
+async function checkDays(days, overrides = {}) {
+	const results = []
+	for (const day of days) {
+		results.push(await check({ ...overrides, ...day }))
 	}
-	return lines
+	return results
 }
 
 describe('dates asked for', () => {
@@ -400,20 +415,24 @@ describe('finished window', () => {
 })
 
 describe('invalid watchdog', () => {
-	const URL_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The property URL must start with https://www.booking.com/hotel/.```'
-	const WINDOW_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The window has an impossible date, or its start is after its end.```'
-	const LONG_WINDOW_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The window is longer than 500 days.```'
+	const URL_ERROR = errorMessage(
+		'The property URL must start with https://www.booking.com/hotel/.',
+	)
+	const WINDOW_ERROR = errorMessage(
+		'The window has an impossible date, or its start is after its end.',
+	)
+	const LONG_WINDOW_ERROR = errorMessage('The window is longer than 500 days.')
 	// Only a watchdog from `WATCHDOG_CONFIG` or a test can get the three errors
 	// below. `config.mjs` gives a bad Sheet cell its default.
-	const MIN_NIGHTS_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The minimum nights must be a whole number of at least 1.```'
-	const ADULTS_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The number of adults must be a whole number of at least 1.```'
-	const CHILDREN_ERROR =
-		'🚧 *Test Property*\ntest-id\n```The number of children must be a whole number of at least 0.```'
+	const MIN_NIGHTS_ERROR = errorMessage(
+		'The minimum nights must be a whole number of at least 1.',
+	)
+	const ADULTS_ERROR = errorMessage(
+		'The number of adults must be a whole number of at least 1.',
+	)
+	const CHILDREN_ERROR = errorMessage(
+		'The number of children must be a whole number of at least 0.',
+	)
 
 	const cases = [
 		{
@@ -593,18 +612,12 @@ describe('stretches', () => {
 	it('a stretch that goes away and comes back sends a second message', async () => {
 		const stateStore = memoryState({ 'test-id': storedState([]) })
 		const days = [
-			{ today: '2026-06-15', available: FIVE_NIGHT_CHECK_INS },
-			{ today: '2026-06-16', available: [] },
-			{ today: '2026-06-17', available: FIVE_NIGHT_CHECK_INS },
+			{ today: '2026-06-15', scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
+			{ today: '2026-06-16', scrape: fakeScrape() },
+			{ today: '2026-06-17', scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
 		]
-		for (const { today, available } of days) {
-			const result = await check({
-				today,
-				scrape: fakeScrape(available),
-				stateStore,
-			})
-			assert.equal(result, 'green')
-		}
+		const results = await checkDays(days, { stateStore })
+		assert.deepEqual(results, ['green', 'green', 'green'])
 		assert.deepEqual(slackMessages, [STRETCH_MESSAGE, STRETCH_MESSAGE])
 		assert.deepEqual(
 			stateStore.writes.map((write) => write.alertedStretches),
@@ -613,16 +626,15 @@ describe('stretches', () => {
 	})
 
 	it('a stretch that includes today sends one message as today moves', async () => {
-		const stateStore = memoryState()
-		for (const today of ['2026-07-02', '2026-07-03', '2026-07-04']) {
-			const result = await check({
-				watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
-				today,
-				scrape: fakeScrape(dateRange('2026-07-01', '2026-07-20')),
-				stateStore,
-			})
-			assert.equal(result, 'green')
-		}
+		const days = ['2026-07-02', '2026-07-03', '2026-07-04'].map((today) => ({
+			today,
+		}))
+		const results = await checkDays(days, {
+			watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
+			scrape: fakeScrape(dateRange('2026-07-01', '2026-07-20')),
+			stateStore: memoryState(),
+		})
+		assert.deepEqual(results, ['green', 'green', 'green'])
 		assert.equal(slackMessages.length, 1)
 		assert.match(slackMessages[0], /2026-07-02 → 2026-07-20> 18 nights$/)
 	})
@@ -692,17 +704,10 @@ describe('too many unknown dates', () => {
 				scrape: fakeScrape([...FIVE_NIGHT_CHECK_INS, '2026-07-08']),
 			},
 		]
-		const results = []
-		for (const { today, scrape } of days) {
-			results.push(
-				await check({
-					watchdog: TEN_DATE_WATCHDOG,
-					today,
-					scrape,
-					stateStore,
-				}),
-			)
-		}
+		const results = await checkDays(days, {
+			watchdog: TEN_DATE_WATCHDOG,
+			stateStore,
+		})
 		assert.deepEqual(results, ['red', 'green'])
 		assert.equal(slackMessages.length, 2)
 		assert.match(slackMessages[0], /2026-07-08 → 2026-07-11> 3 nights$/)
@@ -741,10 +746,7 @@ describe('missing property', () => {
 			{ today: '2026-06-16', scrape: fakeMissingScrape() },
 			{ today: '2026-06-17', scrape: fakeScrape() },
 		]
-		const results = []
-		for (const { today, scrape } of days) {
-			results.push(await check({ today, scrape, stateStore }))
-		}
+		const results = await checkDays(days, { stateStore })
 		assert.deepEqual(results, ['red', 'red', 'green'])
 		assert.deepEqual(slackMessages, [MISSING_MESSAGE, MISSING_MESSAGE])
 		assert.equal(stateStore.writes.length, 1)
@@ -819,8 +821,7 @@ describe('errors', () => {
 	/**
 	 * The error message after the local Slack answers a message with 500.
 	 */
-	const SLACK_ERROR_MESSAGE =
-		'🚧 *Test Property*\ntest-id\n```Slack webhook failed: 500 nope```'
+	const SLACK_ERROR_MESSAGE = errorMessage('Slack webhook failed: 500 nope')
 
 	it('a Slack failure on the stretch message counts as an error', async () => {
 		slackStatus = 500
@@ -855,10 +856,7 @@ describe('errors', () => {
 			},
 			{ today: '2026-06-16', scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) },
 		]
-		const results = []
-		for (const { today, scrape } of days) {
-			results.push(await check({ today, scrape, stateStore }))
-		}
+		const results = await checkDays(days, { stateStore })
 		assert.deepEqual(results, ['red', 'green'])
 		assert.deepEqual(slackMessages, [
 			STRETCH_MESSAGE,
@@ -925,9 +923,7 @@ describe('errors', () => {
 				throw err
 			}
 			assert.equal(await check({ scrape }), 'red')
-			assert.deepEqual(slackMessages, [
-				`🚧 *Test Property*\ntest-id\n\`\`\`${text}\`\`\``,
-			])
+			assert.deepEqual(slackMessages, [errorMessage(text)])
 		})
 	}
 })
