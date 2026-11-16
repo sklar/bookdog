@@ -46,6 +46,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 │   ├── scraper.mjs       # Playwright availability prober
 │   ├── slack.mjs         # Slack message formatting
 │   ├── state.mjs         # dedup state read/write
+│   ├── stretches.mjs     # stretch + dedup logic
 │   └── watchdog.mjs      # logic for one watchdog
 ├── tests/
 │   └── fixtures/

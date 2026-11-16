@@ -118,7 +118,7 @@ async function post(webhookUrl, text, logger) {
  * @param {string} webhookUrl Slack webhook. An empty string sends nothing.
  * @param {import('./watchdog.mjs').Watchdog} watchdog With `adults` and
  *   `children` filled in.
- * @param {import('./watchdog.mjs').Stretch[]} stretches The new stretches.
+ * @param {import('./stretches.mjs').Stretch[]} stretches The new stretches.
  * @param {import('./logger.mjs').Logger} logger Passed on to `post`.
  * @returns {Promise<void>} Resolves after the send.
  */
