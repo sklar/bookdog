@@ -476,6 +476,11 @@ describe('invalid watchdog', () => {
 			message: LONG_WINDOW_ERROR,
 		},
 		{
+			title: 'a minimum of -2',
+			watchdog: { min_nights: -2 },
+			message: MIN_NIGHTS_ERROR,
+		},
+		{
 			title: 'a minimum of 0',
 			watchdog: { min_nights: 0 },
 			message: MIN_NIGHTS_ERROR,
