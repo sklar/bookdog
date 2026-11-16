@@ -26,6 +26,7 @@ jobs:
             exit 0
           fi
           PERM=$(gh api "repos/$REPO/collaborators/$AUTHOR/permission" --jq '.permission' 2>/dev/null || echo "none")
-          if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
-            gh issue close "$ISSUE_URL" --comment "Thanks for stopping by! This repo doesn't accept external issues." --reason "not planned"
-          fi
+          case "$PERM" in
+            admin | maintain | write) exit 0 ;;
+          esac
+          gh issue close "$ISSUE_URL" --comment "Thanks for stopping by! This repo doesn't accept external issues." --reason "not planned"
