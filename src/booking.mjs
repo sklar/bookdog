@@ -29,30 +29,30 @@ export function isPropertyUrl(url) {
 }
 
 /**
- * Builds the Booking link for one stay in one room, with its dates and guests
- * filled in. Throws when `propertyUrl` isn't a valid URL.
+ * Builds the Booking link for one stay of the watchdog in one room, with the
+ * watchdog's guests. Each child goes to Booking aged `CHILD_AGE`. Throws when
+ * `property_url` isn't a valid URL.
  *
- * The link drops the query and fragment of `propertyUrl`. A URL copied from a
+ * The link drops the query and fragment of `property_url`. A URL copied from a
  * Booking search carries its own guests, such as `room1=A,A,A,A` for 4 adults,
  * and Booking prices the rooms for those, even next to `group_adults=2`.
  *
- * @param {string} propertyUrl
- * @param {object} search Passed by name, so `adults` and `children` can't swap.
- * @param {string} search.checkin `YYYY-MM-DD`.
- * @param {string} search.checkout `YYYY-MM-DD`.
- * @param {number} search.adults
- * @param {number} search.children Each one goes to Booking aged `CHILD_AGE`.
- * @param {string} [search.lang] Page language, such as `en-gb`. It overrides
+ * @param {import('./watchdog.mjs').Watchdog} watchdog With `adults` and
+ *   `children` filled in.
+ * @param {object} stay
+ * @param {string} stay.checkin `YYYY-MM-DD`.
+ * @param {string} stay.checkout `YYYY-MM-DD`.
+ * @param {string} [stay.lang] Page language, such as `en-gb`. It overrides
  *   the language in the URL's ending: Booking sends `.de.html` with `en-gb`
  *   to the `.en-gb.html` page. The scraper passes it. The stretch message
  *   doesn't, so its links keep the URL's language.
  * @returns {string} The link.
  */
 export function buildBookingUrl(
-	propertyUrl,
-	{ checkin, checkout, adults, children, lang },
+	{ property_url, adults, children },
+	{ checkin, checkout, lang },
 ) {
-	const url = new URL(propertyUrl)
+	const url = new URL(property_url)
 	url.search = ''
 	url.hash = ''
 	url.searchParams.set('checkin', checkin)

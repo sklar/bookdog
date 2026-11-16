@@ -272,11 +272,9 @@ async function readPropertyPage(page) {
  *   with a reason when it's unknown.
  */
 async function checkDate(page, watchdog, date) {
-	const url = buildBookingUrl(watchdog.property_url, {
+	const url = buildBookingUrl(watchdog, {
 		checkin: date,
 		checkout: addDays(date, watchdog.min_nights),
-		adults: watchdog.adults,
-		children: watchdog.children,
 		lang: PAGE_LANGUAGE,
 	})
 
