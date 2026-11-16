@@ -6,7 +6,7 @@
  * Columns: A=watchdog_id, B=last_checked, C=alerted_runs as JSON. Columns are
  * read by position, so the old header name in C can stay.
  */
-import { google } from 'googleapis'
+import { appendCells, readCells, writeCells } from './sheet.mjs'
 
 /**
  * One watchdog's row in the `state` tab.
@@ -23,19 +23,12 @@ import { google } from 'googleapis'
  * Finds the watchdog's row. A watchdog with no row gets an empty state. Throws
  * when the `alerted_runs` cell isn't valid JSON.
  *
- * @param {string} sheetId The ID from the Sheet's URL.
+ * @param {import('./sheet.mjs').Sheet} sheet
  * @param {string} watchdogId
- * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
  * @returns {Promise<State>} The state.
  */
-export async function readState(sheetId, watchdogId, auth) {
-	const sheets = google.sheets({ version: 'v4', auth })
-	const res = await sheets.spreadsheets.values.get({
-		spreadsheetId: sheetId,
-		range: 'state!A:C',
-	})
-
-	const rows = res.data.values || []
+export async function readState(sheet, watchdogId) {
+	const rows = await readCells(sheet, 'state!A:C')
 	for (let i = 1; i < rows.length; i++) {
 		if (rows[i][0] === watchdogId) {
 			return {
@@ -54,32 +47,20 @@ export async function readState(sheetId, watchdogId, auth) {
  * `rowIndex` names, and adds a row when `rowIndex` is `null`. A state with no
  * `rowIndex` for a watchdog that has a row gives that watchdog a second row.
  *
- * @param {string} sheetId The ID from the Sheet's URL.
+ * @param {import('./sheet.mjs').Sheet} sheet
  * @param {string} watchdogId
  * @param {State} state A copy of what `readState` returned, with new
  *   `alertedStretches`.
- * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
  * @returns {Promise<void>} Resolves after the write.
  */
-export async function writeState(sheetId, watchdogId, state, auth) {
-	const sheets = google.sheets({ version: 'v4', auth })
+export async function writeState(sheet, watchdogId, state) {
 	const now = new Date().toISOString()
 	const values = [[watchdogId, now, JSON.stringify(state.alertedStretches)]]
 
-	// RAW stores the text as it is, so Sheets can't turn the time into a date
-	if (state.rowIndex) {
-		await sheets.spreadsheets.values.update({
-			spreadsheetId: sheetId,
-			range: `state!A${state.rowIndex}:C${state.rowIndex}`,
-			valueInputOption: 'RAW',
-			requestBody: { values },
-		})
-	} else {
-		await sheets.spreadsheets.values.append({
-			spreadsheetId: sheetId,
-			range: 'state!A:C',
-			valueInputOption: 'RAW',
-			requestBody: { values },
-		})
+	if (!state.rowIndex) {
+		await appendCells(sheet, 'state!A:C', values)
+		return
 	}
+	const range = `state!A${state.rowIndex}:C${state.rowIndex}`
+	await writeCells(sheet, range, values)
 }
