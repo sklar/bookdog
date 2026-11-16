@@ -136,14 +136,15 @@ function parseRow(row) {
 	const children = normalizeCount(row[6], DEFAULT_CHILDREN)
 	const minNights = normalizeCount(row[7], DEFAULT_MIN_NIGHTS)
 	const id = (row[8] || '').trim()
-	const enabled =
+	const isEnabled =
 		row[9] === undefined ||
 		row[9] === '' ||
 		row[9].toString().toUpperCase() === 'TRUE'
+	const hasRequiredCells = Boolean(propertyUrl && checkinDate && checkoutDate)
 
-	if (!enabled) return { watchdog: null, skipReason: 'not enabled' }
+	if (!isEnabled) return { watchdog: null, skipReason: 'not enabled' }
 	if (!id) return { watchdog: null, skipReason: 'missing id' }
-	if (!propertyUrl || !checkinDate || !checkoutDate) {
+	if (!hasRequiredCells) {
 		return { watchdog: null, skipReason: 'missing required fields' }
 	}
 
