@@ -1,25 +1,37 @@
 {
-  $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended"],
-  baseBranches: ["main"],
-  schedule: ["on the 1st day of the month"],
-  rangeStrategy: "pin",
-  postUpdateOptions: ["pnpmDedupe"],
-  automerge: true,
-  automergeType: "pr",
-  packageRules: [
-    {
-      matchUpdateTypes: ["minor", "patch"],
-      automerge: true,
-      groupName: "all non-major dependencies",
-    },
-    {
-      matchUpdateTypes: ["major"],
-      automerge: false,
-    },
-    {
-      matchDepNames: ["node", "pnpm"],
-      automerge: false,
-    },
-  ],
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended"],
+	"baseBranchPatterns": ["next"],
+	"schedule": [
+		"* * 1 */3 *", // 1st of Jan, Apr, Jul and Oct
+	],
+	"rangeStrategy": "pin",
+	"postUpdateOptions": ["pnpmDedupe"],
+	"labels": ["dependencies"],
+	"semanticCommits": "enabled",
+
+	"ignoreDeps": [
+		"@biomejs/biome",
+
+		// pinned by hand in mise.toml and package.json
+		"node",
+		"pnpm",
+	],
+
+	"packageRules": [
+		// Minor and patch updates share one PR, which merges once the PR check
+		// passes. Everything else waits for review.
+		{
+			"matchUpdateTypes": ["minor", "patch"],
+			"groupName": "all non-major dependencies",
+			"automerge": true,
+		},
+		// Every commit reads chore(deps). Without this rule, config:recommended
+		// gives runtime packages fix(deps).
+		{
+			"matchPackageNames": ["*"],
+			"semanticCommitType": "chore",
+			"semanticCommitScope": "deps",
+		},
+	],
 }

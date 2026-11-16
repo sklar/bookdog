@@ -29,6 +29,7 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 │       ├── check-availability.yml
 │       ├── cleanup.yml
 │       ├── integration-test.yml
+│       ├── issue-gate.yml
 │       ├── pr.yml
 │       └── release.yml
 ├── docs/                 # ADRs, agent docs, original build plan
