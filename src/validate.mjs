@@ -22,7 +22,8 @@ import { daysBetween, isRealDate } from './dates.mjs'
  *
  * Without a limit, a wrong year asks for thousands of pages. A window from
  * 2026-07-01 that ends in 2036 instead of 2026 asks for 3660 pages. By
- * estimate, that takes longer than the check job's `timeout-minutes: 15`.
+ * estimate, that takes longer than the check job's `timeout-minutes` in
+ * `check-availability.yml` allows.
  */
 const MAX_WINDOW_DAYS = 500
 

@@ -19,7 +19,8 @@ import { addDays } from './dates.mjs'
  * How many pages load at once.
  *
  * A window of 500 days needs 500 page loads, plus up to 50 on the second try.
- * They fit inside the check job's `timeout-minutes: 15`.
+ * They fit inside the check job's `timeout-minutes` in
+ * `check-availability.yml`.
  *
  * Timeouts can break that. 50 page loads that each time out after 30 seconds
  * take about 5 minutes, once in the first pass and again on the second try.
