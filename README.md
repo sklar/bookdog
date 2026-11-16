@@ -36,9 +36,11 @@ Booking.com availability watchdog — scrapes properties daily via GitHub Action
 ├── scripts/
 │   └── changeset.mjs     # interactive changeset CLI
 ├── src/
+│   ├── booking.mjs       # property URL check, Booking links
 │   ├── check.mjs         # main entrypoint, wires the real dependencies
 │   ├── config.mjs        # Google Sheet config reader
 │   ├── constants.mjs     # values more than one module uses
+│   ├── date-results.mjs  # date results, too many unknown
 │   ├── dates.mjs         # date arithmetic
 │   ├── logger.mjs        # log lines, Sheet data only outside CI
 │   ├── scraper.mjs       # Playwright availability prober

@@ -12,8 +12,8 @@
  */
 import { chromium } from 'playwright'
 import { buildBookingUrl } from './booking.mjs'
+import { datesWith, isTooManyUnknown, sortByDate } from './date-results.mjs'
 import { addDays } from './dates.mjs'
-import { isTooManyUnknown } from './unknown-dates.mjs'
 
 /**
  * How many pages load at once.
@@ -168,7 +168,7 @@ async function desktopUserAgent(browser) {
 /**
  * A date result: `available`, `sold-out` or `unknown`.
  *
- * @typedef {import('./watchdog.mjs').DateResult['result']} Result
+ * @typedef {import('./date-results.mjs').DateResult['result']} Result
  */
 
 /**
@@ -348,8 +348,9 @@ function describeDate({ result, reason }) {
  * gets the error. An unknown first date doesn't stop the scrape.
  *
  * After this first pass, the unknown dates load once more, and the new result
- * replaces the old one. `isTooManyUnknown` stops that when more than 10% are
- * unknown, because Booking may be blocking the scraper. A date that settles
+ * replaces the old one. `isTooManyUnknown` stops that when more than
+ * `MAX_UNKNOWN_PERCENT` are unknown, because Booking may be blocking the
+ * scraper. A date that settles
  * outside `/hotel/` on its second try stays unknown, even the first date.
  *
  * @param {import('./watchdog.mjs').Watchdog} watchdog With `adults`,
@@ -450,7 +451,7 @@ export async function scrapeAvailability(
 		 * @param {string[]} passDates Dates of this pass.
 		 * @param {(date: string, words: string) => void} logProgress From
 		 *   `progressLog`.
-		 * @returns {Promise<import('./watchdog.mjs').DateResult[]>} One result
+		 * @returns {Promise<import('./date-results.mjs').DateResult[]>} One result
 		 *   per date, in the order the loads finished.
 		 */
 		const loadOnPages = async (passDates, logProgress) => {
@@ -473,11 +474,12 @@ export async function scrapeAvailability(
 		 * replaces the old one, so one slow page doesn't break a stretch.
 		 *
 		 * There's no pause first. The workers of the first pass also start right
-		 * after a load, and the second try has at most a tenth of the dates.
+		 * after a load, and the second try has at most `MAX_UNKNOWN_PERCENT` of
+		 * the dates.
 		 *
 		 * @param {string[]} unknownDates Dates the first pass left unknown.
-		 * @param {import('./watchdog.mjs').DateResult[]} firstPassResults
-		 * @returns {Promise<import('./watchdog.mjs').DateResult[]>} The results
+		 * @param {import('./date-results.mjs').DateResult[]} firstPassResults
+		 * @returns {Promise<import('./date-results.mjs').DateResult[]>} The results
 		 *   of the first pass, with the new result for each date tried again.
 		 */
 		const tryAgain = async (unknownDates, firstPassResults) => {
@@ -500,18 +502,16 @@ export async function scrapeAvailability(
 			...(await loadOnPages(laterDates, logFirstPass)),
 		]
 
-		const unknownDates = firstPassResults
-			.filter(({ result }) => result === 'unknown')
-			.map(({ date }) => date)
+		const unknownDates = datesWith(firstPassResults, 'unknown')
 		const shouldTryAgain =
 			unknownDates.length > 0 && !isTooManyUnknown(firstPassResults)
 
 		// Workers finish in any order
-		const dateResults = (
+		const dateResults = sortByDate(
 			shouldTryAgain
 				? await tryAgain(unknownDates, firstPassResults)
-				: firstPassResults
-		).toSorted((a, b) => a.date.localeCompare(b.date))
+				: firstPassResults,
+		)
 
 		logger.log(`Scraping completed: ${dateResults.length} dates`)
 		return { missing: false, dateResults }
