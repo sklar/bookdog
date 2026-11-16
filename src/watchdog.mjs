@@ -14,10 +14,10 @@ import {
 	DEFAULT_CHILDREN,
 	DEFAULT_MIN_NIGHTS,
 } from './constants.mjs'
+import { datesWith, isTooManyUnknown, sortByDate } from './date-results.mjs'
 import { addDays, dateRange, daysBetween, isRealDate } from './dates.mjs'
 import { describeError } from './logger.mjs'
 import { sendError, sendMissing, sendStretches, sendUnknown } from './slack.mjs'
-import { isTooManyUnknown } from './unknown-dates.mjs'
 
 /**
  * One row of the Sheet.
@@ -57,15 +57,9 @@ import { isTooManyUnknown } from './unknown-dates.mjs'
  */
 
 /**
- * What the scrape found for one check-in date:
+ * What the scrape found for one check-in date.
  *
- * - `available`: Booking offers a stay of the minimum nights from this date.
- * - `sold-out`: the property page proves that it has no room for that stay.
- * - `unknown`: the page failed, or the scraper didn't recognise it.
- *
- * @typedef {object} DateResult
- * @property {string} date `YYYY-MM-DD`.
- * @property {'available' | 'sold-out' | 'unknown'} result
+ * @typedef {import('./date-results.mjs').DateResult} DateResult
  */
 
 /**
@@ -149,11 +143,10 @@ function toStretch(checkIns, minNights) {
  * @returns {Stretch[]} Stretches in date order.
  */
 export function findStretches(dateResults, minNights) {
-	const sorted = [...dateResults].sort((a, b) => a.date.localeCompare(b.date))
 	const sequences = []
 	let sequence = null
 
-	for (const { date, result } of sorted) {
+	for (const { date, result } of sortByDate(dateResults)) {
 		if (result !== 'available') {
 			sequence = null
 			continue
@@ -358,8 +351,8 @@ function withDefaults({
  * 4. Find stretches.
  * 5. Keep the stretches that aren't among the alerted stretches in state.
  * 6. Send one Slack message for the new stretches, if any.
- * 7. If `isTooManyUnknown` finds more than 10% of the dates unknown, send the
- *    unknown message. The check returns `red`, after step 8.
+ * 7. If `isTooManyUnknown` finds more than `MAX_UNKNOWN_PERCENT` of the dates
+ *    unknown, send the unknown message. The check returns `red`, after step 8.
  * 8. Write state, even with no stretches. The current stretches replace the
  *    alerted ones. A stretch that went away leaves state, so it gets a new
  *    Slack message when it comes back.
@@ -472,8 +465,7 @@ export async function runWatchdog({
 		}
 
 		const { dateResults } = scrapeResult
-		const count = (result) =>
-			dateResults.filter((d) => d.result === result).length
+		const count = (result) => datesWith(dateResults, result).length
 		logger.log(
 			`   Dates checked: ${dateResults.length} — ${count('available')} available, ${count('sold-out')} sold out, ${count('unknown')} unknown`,
 		)
