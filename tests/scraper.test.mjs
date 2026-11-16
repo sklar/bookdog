@@ -4,9 +4,9 @@ import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import { after, before, beforeEach, describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { format } from 'node:util'
 import { dateRange } from '../src/dates.mjs'
 import { createLogger } from '../src/logger.mjs'
+import { captureConsole } from './helpers.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const fixturesDir = join(__dirname, 'fixtures')
@@ -188,22 +188,6 @@ function watchdogAt(path, overrides = {}) {
  * date.
  */
 const ciLogger = createLogger(false)
-
-/**
- * Keeps every line printed through any console method.
- *
- * It catches a line that skips the logger too. The mocks end with the test.
- *
- * @param {import('node:test').TestContext} t
- * @returns {string[]} The lines, filled as the test runs.
- */
-function captureConsole(t) {
-	const lines = []
-	for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
-		t.mock.method(console, method, (...args) => lines.push(format(...args)))
-	}
-	return lines
-}
 
 /**
  * Counts the page loads under `/hotel/`.
