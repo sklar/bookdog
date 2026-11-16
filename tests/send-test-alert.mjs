@@ -37,6 +37,9 @@ const webhookUrl = process.env.SLACK_WEBHOOK_URL || ''
  */
 const logger = createLogger(true)
 
+/** @type {import('../src/slack.mjs').SlackTarget} */
+const slack = { webhookUrl, logger }
+
 /**
  * A sample watchdog on the property the Integration Test uses.
  *
@@ -58,37 +61,25 @@ const watchdog = {
 }
 
 logger.log('Sending test stretch message...')
-await sendStretches(
-	webhookUrl,
-	watchdog,
-	[
-		{ start: '2026-07-10', end: '2026-07-17', nights: 7 },
-		{ start: '2026-07-20', end: '2026-07-25', nights: 5 },
-	],
-	logger,
-)
+await sendStretches(slack, watchdog, [
+	{ start: '2026-07-10', end: '2026-07-17', nights: 7 },
+	{ start: '2026-07-20', end: '2026-07-25', nights: 5 },
+])
 
 logger.log('\nSending test missing message...')
 await sendMissing(
-	webhookUrl,
+	slack,
 	watchdog,
 	'https://www.booking.com/city/at/test-town.html',
-	logger,
 )
 
 logger.log('\nSending test unknown message...')
 await sendUnknown(
-	webhookUrl,
+	slack,
 	watchdog,
 	{ unknown: 15, total: 212 },
 	'https://github.com/test-owner/bookdog/actions/runs/1234',
-	logger,
 )
 
 logger.log('\nSending test error message...')
-await sendError(
-	webhookUrl,
-	watchdog,
-	'page.goto: Timeout 30000ms exceeded.',
-	logger,
-)
+await sendError(slack, watchdog, 'page.goto: Timeout 30000ms exceeded.')

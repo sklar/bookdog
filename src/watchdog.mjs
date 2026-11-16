@@ -185,6 +185,8 @@ export async function runWatchdog({
 	logger,
 }) {
 	const watchdog = withDefaults(givenWatchdog)
+	/** @type {import('./slack.mjs').SlackTarget} */
+	const slack = { webhookUrl, logger }
 	const {
 		id,
 		property_url,
@@ -240,7 +242,7 @@ export async function runWatchdog({
 			logger.log('   Property missing.')
 			logger.detail(`   Booking sends visitors to ${finalUrl}`)
 			await sendUnlessDryRun('missing', () =>
-				sendMissing(webhookUrl, watchdog, finalUrl, logger),
+				sendMissing(slack, watchdog, finalUrl),
 			)
 			return 'red'
 		}
@@ -275,7 +277,7 @@ export async function runWatchdog({
 				)
 			}
 		} else if (hasNewStretches) {
-			await sendStretches(webhookUrl, watchdog, newStretches, logger)
+			await sendStretches(slack, watchdog, newStretches)
 		}
 
 		const hasTooManyUnknown = isTooManyUnknown(dateResults)
@@ -285,7 +287,7 @@ export async function runWatchdog({
 				`   Too many unknown dates: ${counts.unknown} of ${counts.total}.`,
 			)
 			await sendUnlessDryRun('unknown', () =>
-				sendUnknown(webhookUrl, watchdog, counts, workflowRunUrl, logger),
+				sendUnknown(slack, watchdog, counts, workflowRunUrl),
 			)
 		}
 		const colour = hasTooManyUnknown ? 'red' : 'green'
@@ -307,7 +309,7 @@ export async function runWatchdog({
 	} catch (err) {
 		logger.error('Check failed', err)
 		await sendUnlessDryRun('error', () =>
-			sendError(webhookUrl, watchdog, describeError(err), logger),
+			sendError(slack, watchdog, describeError(err)),
 		)
 		return 'red'
 	}
