@@ -110,7 +110,7 @@ const MISSING_MESSAGE = [
 ].join('\n')
 
 /**
- * The workflow run link that `run` passes, as the CLI would on GitHub.
+ * The workflow run link that `check` passes, as the CLI would on GitHub.
  */
 const WORKFLOW_RUN_URL =
 	'https://github.com/test-owner/bookdog/actions/runs/1234'
@@ -206,7 +206,7 @@ function storedState(alertedStretches) {
 let slackServer
 
 /**
- * Where the stand-in listens. `run` passes it as the webhook URL.
+ * Where the stand-in listens. `check` passes it as the webhook URL.
  */
 let slackUrl
 
@@ -259,7 +259,7 @@ beforeEach(() => {
  * @param {object} [overrides] Options of `runWatchdog` that replace these.
  * @returns {Promise<'red' | 'green'>} The colour of the check.
  */
-function run(overrides = {}) {
+function check(overrides = {}) {
 	return runWatchdog({
 		watchdog: WATCHDOG,
 		today: '2026-06-15',
@@ -292,7 +292,7 @@ function captureConsole(t) {
 describe('dates asked for', () => {
 	it('asks from the window start to the last check-in that fits when today is before the window', async () => {
 		const scrape = fakeScrape()
-		await run({
+		await check({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10', min_nights: 4 },
 			today: '2026-06-15',
 			scrape,
@@ -317,7 +317,7 @@ describe('dates asked for', () => {
 
 	it('asks for one date when today is the last check-in', async () => {
 		const scrape = fakeScrape()
-		await run({
+		await check({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-10' },
 			today: '2026-07-07',
 			scrape,
@@ -328,7 +328,7 @@ describe('dates asked for', () => {
 	it('a watchdog with no guests or minimum nights asks for and links to 1 adult, 0 children and 3 nights', async () => {
 		const { adults, children, min_nights, ...watchdog } = WATCHDOG
 		const scrape = fakeScrape(['2026-07-01'])
-		await run({ watchdog, scrape })
+		await check({ watchdog, scrape })
 		const call = scrape.calls[0]
 		assert.equal(call.adults, 1)
 		assert.equal(call.children, 0)
@@ -341,7 +341,7 @@ describe('dates asked for', () => {
 
 	it('a window of 500 days asks for every check-in that fits', async () => {
 		const scrape = fakeScrape()
-		const result = await run({
+		const result = await check({
 			watchdog: {
 				...WATCHDOG,
 				checkin_date: '2027-01-01',
@@ -385,7 +385,7 @@ describe('finished window', () => {
 		it(`stays green and quiet when ${title}`, async () => {
 			const scrape = fakeScrape()
 			const stateStore = memoryState()
-			const result = await run({
+			const result = await check({
 				watchdog: { ...WATCHDOG, ...window },
 				today,
 				scrape,
@@ -518,7 +518,7 @@ describe('invalid watchdog', () => {
 		it(`${title} asks for no dates, sends one error and returns red`, async () => {
 			const scrape = fakeScrape()
 			const stateStore = memoryState()
-			const result = await run({
+			const result = await check({
 				watchdog: { ...WATCHDOG, ...watchdog },
 				scrape,
 				stateStore,
@@ -531,7 +531,7 @@ describe('invalid watchdog', () => {
 	}
 
 	it('a Booking URL in capitals is fine', async () => {
-		const result = await run({
+		const result = await check({
 			watchdog: {
 				...WATCHDOG,
 				property_url: 'HTTPS://WWW.BOOKING.COM/hotel/xx/test-house.html',
@@ -544,7 +544,7 @@ describe('invalid watchdog', () => {
 describe('stretches', () => {
 	it('a new stretch sends one message and writes a new state', async () => {
 		const stateStore = memoryState({ 'test-id': storedState([]) })
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
@@ -560,7 +560,7 @@ describe('stretches', () => {
 		const stateStore = memoryState({
 			'test-id': storedState([FIVE_NIGHT_STRETCH]),
 		})
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
@@ -576,7 +576,7 @@ describe('stretches', () => {
 		const stateStore = memoryState({
 			'test-id': storedState([FIVE_NIGHT_STRETCH]),
 		})
-		await run({
+		await check({
 			watchdog: { ...WATCHDOG, checkout_date: '2026-07-12' },
 			scrape: fakeScrape([...FIVE_NIGHT_CHECK_INS, '2026-07-07']),
 			stateStore,
@@ -598,7 +598,7 @@ describe('stretches', () => {
 			{ today: '2026-06-17', available: FIVE_NIGHT_CHECK_INS },
 		]
 		for (const { today, available } of days) {
-			const result = await run({
+			const result = await check({
 				today,
 				scrape: fakeScrape(available),
 				stateStore,
@@ -615,7 +615,7 @@ describe('stretches', () => {
 	it('a stretch that includes today sends one message as today moves', async () => {
 		const stateStore = memoryState()
 		for (const today of ['2026-07-02', '2026-07-03', '2026-07-04']) {
-			const result = await run({
+			const result = await check({
 				watchdog: { ...WATCHDOG, checkout_date: '2026-07-20' },
 				today,
 				scrape: fakeScrape(dateRange('2026-07-01', '2026-07-20')),
@@ -629,7 +629,7 @@ describe('stretches', () => {
 
 	it('links without the query of a pasted URL, whose guests would win on Booking', async () => {
 		const pastedUrl = `${WATCHDOG.property_url}?room1=A%2CA%2CA%2CA&req_adults=4`
-		await run({
+		await check({
 			watchdog: { ...WATCHDOG, property_url: pastedUrl },
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 		})
@@ -641,7 +641,7 @@ describe('date results', () => {
 	it('an unknown date ends a stretch, and the log counts each result', async (t) => {
 		const printed = captureConsole(t)
 		// Jul 1 and 3 available, Jul 2 unknown, Jul 4 to 10 sold out
-		await run({
+		await check({
 			watchdog: TEN_DATE_WATCHDOG,
 			scrape: fakeScrape(['2026-07-01', '2026-07-03'], ['2026-07-02']),
 		})
@@ -659,7 +659,7 @@ describe('date results', () => {
 
 describe('too many unknown dates', () => {
 	it("without a workflow run, as on the owner's machine, the unknown message has no link line", async () => {
-		await run({
+		await check({
 			scrape: fakeTooManyUnknownScrape(),
 			workflowRunUrl: null,
 		})
@@ -668,7 +668,7 @@ describe('too many unknown dates', () => {
 	})
 
 	it('more than 10% unknown returns red and sends the unknown message, after the message for a found stretch', async () => {
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS, ['2026-07-04']),
 		})
 		assert.equal(result, 'red')
@@ -695,7 +695,7 @@ describe('too many unknown dates', () => {
 		const results = []
 		for (const { today, scrape } of days) {
 			results.push(
-				await run({
+				await check({
 					watchdog: TEN_DATE_WATCHDOG,
 					today,
 					scrape,
@@ -721,7 +721,7 @@ describe('too many unknown dates', () => {
 			'test-id': storedState([FIVE_NIGHT_STRETCH]),
 		})
 		// Jul 1 unknown, Jul 8 available
-		const result = await run({
+		const result = await check({
 			watchdog: TEN_DATE_WATCHDOG,
 			scrape: fakeScrape(['2026-07-08'], ['2026-07-01']),
 			stateStore,
@@ -743,7 +743,7 @@ describe('missing property', () => {
 		]
 		const results = []
 		for (const { today, scrape } of days) {
-			results.push(await run({ today, scrape, stateStore }))
+			results.push(await check({ today, scrape, stateStore }))
 		}
 		assert.deepEqual(results, ['red', 'red', 'green'])
 		assert.deepEqual(slackMessages, [MISSING_MESSAGE, MISSING_MESSAGE])
@@ -801,7 +801,7 @@ describe('dry run', () => {
 			const printed = captureConsole(t)
 			const stateStore = memoryState()
 			assert.equal(
-				await run({ ...overrides, stateStore, isDryRun: true }),
+				await check({ ...overrides, stateStore, isDryRun: true }),
 				result,
 			)
 			assert.deepEqual(slackMessages, [])
@@ -825,7 +825,7 @@ describe('errors', () => {
 	it('a Slack failure on the stretch message counts as an error', async () => {
 		slackStatus = 500
 		const stateStore = memoryState()
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			stateStore,
 		})
@@ -838,7 +838,7 @@ describe('errors', () => {
 
 	it('a Slack failure on the missing message counts as an error', async () => {
 		slackStatus = 500
-		const result = await run({ scrape: fakeMissingScrape() })
+		const result = await check({ scrape: fakeMissingScrape() })
 		assert.equal(result, 'red')
 		assert.deepEqual(slackMessages, [MISSING_MESSAGE, SLACK_ERROR_MESSAGE])
 	})
@@ -857,7 +857,7 @@ describe('errors', () => {
 		]
 		const results = []
 		for (const { today, scrape } of days) {
-			results.push(await run({ today, scrape, stateStore }))
+			results.push(await check({ today, scrape, stateStore }))
 		}
 		assert.deepEqual(results, ['red', 'green'])
 		assert.deepEqual(slackMessages, [
@@ -875,7 +875,7 @@ describe('errors', () => {
 	it('an unreachable Slack returns red', async () => {
 		// Fetch refuses port 1 before it connects, which fails the send just the
 		// same
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			webhookUrl: 'http://127.0.0.1:1',
 		})
@@ -924,7 +924,7 @@ describe('errors', () => {
 			const scrape = async () => {
 				throw err
 			}
-			assert.equal(await run({ scrape }), 'red')
+			assert.equal(await check({ scrape }), 'red')
 			assert.deepEqual(slackMessages, [
 				`🚧 *Test Property*\ntest-id\n\`\`\`${text}\`\`\``,
 			])
@@ -943,10 +943,10 @@ describe('watchdog with no name', () => {
 	it('every message takes its title from the URL, without the language code or query', async () => {
 		// Slack refuses the stretch message, so an error message follows it
 		slackStatus = 500
-		await run({ watchdog, scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
+		await check({ watchdog, scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
 		slackStatus = 200
-		await run({ watchdog, scrape: fakeMissingScrape() })
-		await run({ watchdog, scrape: fakeTooManyUnknownScrape() })
+		await check({ watchdog, scrape: fakeMissingScrape() })
+		await check({ watchdog, scrape: fakeTooManyUnknownScrape() })
 		const titles = slackMessages.map((message) => message.split('\n')[0])
 		assert.deepEqual(titles, [
 			'*Test House*',
@@ -964,14 +964,14 @@ describe('watchdog with no name', () => {
 describe("a check on the owner's machine", () => {
 	it('with no state store, two checks send the stretch message twice', async () => {
 		const scrape = fakeScrape(FIVE_NIGHT_CHECK_INS)
-		assert.equal(await run({ scrape, stateStore: null }), 'green')
-		assert.equal(await run({ scrape, stateStore: null }), 'green')
+		assert.equal(await check({ scrape, stateStore: null }), 'green')
+		assert.equal(await check({ scrape, stateStore: null }), 'green')
 		assert.equal(slackMessages.length, 2)
 	})
 
 	it('with no webhook URL, prints the message, posts nothing and says so', async (t) => {
 		const printed = captureConsole(t)
-		const result = await run({
+		const result = await check({
 			scrape: fakeScrape(FIVE_NIGHT_CHECK_INS),
 			webhookUrl: '',
 			logger: createLogger(true),
@@ -1072,7 +1072,7 @@ describe('public log', () => {
 			{ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS), webhookUrl: unreachableUrl },
 		]
 		for (const overrides of checks) {
-			await run({
+			await check({
 				watchdog: PRIVATE_WATCHDOG,
 				logger: createLogger(verbose),
 				...overrides,
@@ -1083,7 +1083,7 @@ describe('public log', () => {
 
 	it('a check with no stretches logs the counts, one line about stretches and the state write', async (t) => {
 		const printed = captureConsole(t)
-		await run()
+		await check()
 		assert.deepEqual(printed, [
 			'   Dates checked: 5 — 0 available, 5 sold out, 0 unknown',
 			'   Stretches found: 0',
@@ -1093,7 +1093,7 @@ describe('public log', () => {
 
 	it('a new stretch logs that Slack accepted the message', async (t) => {
 		const printed = captureConsole(t)
-		await run({ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
+		await check({ scrape: fakeScrape(FIVE_NIGHT_CHECK_INS) })
 		assert.deepEqual(printed, [
 			'   Dates checked: 5 — 3 available, 2 sold out, 0 unknown',
 			'   Stretches found: 1',

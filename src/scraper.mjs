@@ -55,7 +55,7 @@ function randomDelay(min = 1500, max = 3500) {
  *
  * It's English, so every page loads in `PAGE_LANGUAGE`.
  */
-const UNAVAIL_PATTERNS = ['not available']
+const NOT_AVAILABLE_TEXT = 'not available'
 
 /**
  * Language of every page the scraper loads.
@@ -207,11 +207,10 @@ function isUnderHotelPath(url) {
  * Tells whether a price cell's text says that its room has no offer.
  *
  * @param {string} text Inner text of the cell.
- * @returns {boolean} `true` when it has one of `UNAVAIL_PATTERNS`.
+ * @returns {boolean} `true` when it has `NOT_AVAILABLE_TEXT`.
  */
 function saysNotAvailable(text) {
-	const lowerText = text.toLowerCase()
-	return UNAVAIL_PATTERNS.some((p) => lowerText.includes(p))
+	return text.toLowerCase().includes(NOT_AVAILABLE_TEXT)
 }
 
 /**
@@ -487,12 +486,12 @@ export async function scrapeAvailability(
 				unknownDates,
 				progressLog(unknownDates.length, 'second try '),
 			)
-			const secondResults = new Map(
+			const secondResultByDate = new Map(
 				secondTryResults.map(({ date, result }) => [date, result]),
 			)
 			return firstPassResults.map(({ date, result }) => ({
 				date,
-				result: secondResults.get(date) ?? result,
+				result: secondResultByDate.get(date) ?? result,
 			}))
 		}
 
