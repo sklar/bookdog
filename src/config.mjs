@@ -10,7 +10,6 @@
  */
 
 import { appendFileSync } from 'node:fs'
-import { google } from 'googleapis'
 import {
 	DEFAULT_ADULTS,
 	DEFAULT_CHILDREN,
@@ -18,43 +17,7 @@ import {
 } from './constants.mjs'
 import { isIsoFormat } from './dates.mjs'
 import { createLogger, isOutsideCi } from './logger.mjs'
-
-/**
- * Builds the Google login from the JSON in `GOOGLE_SERVICE_ACCOUNT_KEY`.
- *
- * It asks for read and write access, because `check.mjs` also writes state
- * with it. It throws when the variable is missing or isn't valid JSON. That
- * parse error quotes a piece of the key, so callers log it only through
- * `logger.error`, which shows just its name on GitHub.
- *
- * @returns {import('googleapis').Auth.JWT} The login.
- */
-export function getAuth() {
-	const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY)
-	return new google.auth.JWT({
-		email: key.client_email,
-		key: key.private_key,
-		scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-	})
-}
-
-/**
- * Reads cells from the `config` tab, in one Sheets API call.
- *
- * @param {string} sheetId The ID from the Sheet's URL.
- * @param {string} cells Cells in A1 notation, without the tab, such as `A:J`.
- * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
- * @returns {Promise<string[][]>} The cells of each row. Sheets leaves out
- *   blank rows at the end, and blank cells at the end of a row.
- */
-async function readConfigCells(sheetId, cells, auth) {
-	const sheets = google.sheets({ version: 'v4', auth })
-	const res = await sheets.spreadsheets.values.get({
-		spreadsheetId: sheetId,
-		range: `config!${cells}`,
-	})
-	return res.data.values || []
-}
+import { openSheet, readCells } from './sheet.mjs'
 
 /**
  * Turns a date cell into `YYYY-MM-DD`.
@@ -169,14 +132,13 @@ function parseRow(row) {
  * Row 1 holds the headers. A row that is enabled but holds no watchdog gets a
  * log line, such as `Row 4: missing id, skipping`. A paused row gets none.
  *
- * @param {string} sheetId The ID from the Sheet's URL.
- * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
+ * @param {import('./sheet.mjs').Sheet} sheet
  * @param {import('./logger.mjs').Logger} logger Prints the skip lines.
  * @returns {Promise<number[]>} Row numbers as the Sheet shows them, counted
  *   from 1, in order.
  */
-export async function loadEnabledRows(sheetId, auth, logger) {
-	const rows = await readConfigCells(sheetId, 'A:J', auth)
+export async function loadEnabledRows(sheet, logger) {
+	const rows = await readCells(sheet, 'config!A:J')
 	const rowNumbers = []
 	for (let i = 1; i < rows.length; i++) {
 		const rowNumber = i + 1
@@ -199,17 +161,16 @@ export async function loadEnabledRows(sheetId, auth, logger) {
  * The owner can edit the Sheet between `list-rows` and the check job, so the
  * row may no longer hold an enabled watchdog.
  *
- * @param {string} sheetId The ID from the Sheet's URL.
+ * @param {import('./sheet.mjs').Sheet} sheet
  * @param {number} rowNumber Row as the Sheet shows it, counted from 1. Row 1
  *   holds the headers.
- * @param {import('googleapis').Auth.JWT} auth Login from `getAuth`.
  * @returns {Promise<ParsedRow>} The watchdog, or the reason the row holds
  *   none.
  */
-export async function loadRow(sheetId, rowNumber, auth) {
-	const cells = `A${rowNumber}:J${rowNumber}`
+export async function loadRow(sheet, rowNumber) {
+	const range = `config!A${rowNumber}:J${rowNumber}`
 	// A row past the last one comes back with no values
-	const [row = []] = await readConfigCells(sheetId, cells, auth)
+	const [row = []] = await readCells(sheet, range)
 	return parseRow(row)
 }
 
@@ -230,9 +191,9 @@ if (import.meta.main) {
 
 	let rowNumbers
 	try {
-		rowNumbers = await loadEnabledRows(sheetId, getAuth(), logger)
+		rowNumbers = await loadEnabledRows(openSheet(sheetId), logger)
 	} catch (err) {
-		// The message may quote the key, see `getAuth`
+		// The message may quote the key, see `openSheet`
 		logger.error('Failed to read the config tab', err)
 		process.exit(1)
 	}

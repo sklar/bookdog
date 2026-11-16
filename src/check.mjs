@@ -13,9 +13,10 @@
  * messages.
  */
 
-import { getAuth, loadRow } from './config.mjs'
+import { loadRow } from './config.mjs'
 import { createLogger, isOutsideCi } from './logger.mjs'
 import { scrapeAvailability } from './scraper.mjs'
+import { openSheet } from './sheet.mjs'
 import { readState, writeState } from './state.mjs'
 import { runWatchdog } from './watchdog.mjs'
 
@@ -109,7 +110,7 @@ async function readSheetRow(rowText) {
 
 	let parsed
 	try {
-		parsed = await loadRow(sheetId, row, getAuth())
+		parsed = await loadRow(openSheet(sheetId), row)
 	} catch (err) {
 		exitBeforeCheck(`Failed to read Sheet row ${row}`, err)
 	}
@@ -169,16 +170,16 @@ const watchdog = watchdogRow
  * Reads and writes the watchdog's row in the `state` tab. `null` without
  * `GOOGLE_SHEET_ID`.
  *
- * `getAuth` runs on each read and write, not when the CLI starts. With
+ * `openSheet` runs on each read and write, not when the CLI starts. With
  * `WATCHDOG_CONFIG`, a bad key then throws inside `runWatchdog`, which sends
  * the error message. With `WATCHDOG_ROW`, `readSheetRow` has already exited on
  * it.
  */
 const stateStore = sheetId
 	? {
-			read: (watchdogId) => readState(sheetId, watchdogId, getAuth()),
+			read: (watchdogId) => readState(openSheet(sheetId), watchdogId),
 			write: (watchdogId, state) =>
-				writeState(sheetId, watchdogId, state, getAuth()),
+				writeState(openSheet(sheetId), watchdogId, state),
 		}
 	: null
 
