@@ -70,7 +70,7 @@ logger.log('\nSending test missing message...')
 await sendMissing(
 	slack,
 	watchdog,
-	'https://www.booking.com/city/at/test-town.html',
+	'https://www.booking.com/searchresults.en-gb.html?label=test-label&dest_id=-1&dest_type=city',
 )
 
 logger.log('\nSending test unknown message...')
