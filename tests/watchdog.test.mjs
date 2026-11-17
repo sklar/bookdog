@@ -85,9 +85,11 @@ function fakeScrape(availableDates = [], unknownDates = []) {
 }
 
 /**
- * The city page where Booking sends the page of a missing property.
+ * The city page where Booking sends the page of a missing property. Booking
+ * adds a query, which the message leaves out of the link text.
  */
-const CITY_URL = 'https://www.booking.com/city/xx/test-town.html'
+const CITY_URL =
+	'https://www.booking.com/city/xx/test-town.html?label=test-label&dest_type=city'
 
 /**
  * Stands in for the scrape of a missing property.
@@ -110,7 +112,7 @@ const PROBLEM_HEADER = ['🚧 *Test Property*', 'test-id']
  */
 const MISSING_MESSAGE = [
 	...PROBLEM_HEADER,
-	'Booking no longer has this property. It sends visitors to <https://www.booking.com/city/xx/test-town.html>.',
+	`Booking no longer has this property. It sends visitors to <${CITY_URL}|booking.com/city/xx/test-town.html>.`,
 	'To stop this message, set enabled=FALSE in the Sheet.',
 ].join('\n')
 

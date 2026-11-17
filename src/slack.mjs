@@ -80,6 +80,21 @@ function problemHeader(watchdog) {
 }
 
 /**
+ * Shortens a URL to its host and path, for the text of a link. It drops the
+ * scheme, `www.`, the query and the fragment.
+ *
+ * Like `humanizeName`, it splits the string instead of calling `new URL`, so it
+ * can't throw.
+ *
+ * @param {string} url
+ * @returns {string} The host and path, such as
+ *   `booking.com/searchresults.en-gb.html`.
+ */
+function shortUrl(url) {
+	return url.split(/[?#]/)[0].replace(/^https?:\/\/(www\.)?/, '')
+}
+
+/**
  * Posts one message to the webhook, and logs that Slack accepted it.
  *
  * Without a webhook URL, it logs that the message wasn't sent. A verbose
@@ -155,7 +170,9 @@ export async function sendStretches(slack, watchdog, stretches) {
  * Sends the message for a missing property.
  *
  * It links to where Booking sends visitors and says how to stop the message.
- * Unlike the error message, it has no code block, so the link stays clickable.
+ * The link shows only the host and path. Booking's query is mostly tracking
+ * IDs and would fill several lines in Slack. Unlike the error message, it has
+ * no code block, so the link stays clickable.
  *
  * Throws when the send fails. The message comes again with the next check
  * anyway, as long as the property stays missing.
@@ -168,7 +185,7 @@ export async function sendStretches(slack, watchdog, stretches) {
 export async function sendMissing(slack, watchdog, finalUrl) {
 	const text = [
 		...problemHeader(watchdog),
-		`Booking no longer has this property. It sends visitors to <${finalUrl}>.`,
+		`Booking no longer has this property. It sends visitors to <${finalUrl}|${shortUrl(finalUrl)}>.`,
 		'To stop this message, set enabled=FALSE in the Sheet.',
 	].join('\n')
 
@@ -181,8 +198,8 @@ export async function sendMissing(slack, watchdog, finalUrl) {
  *
  * Like the missing message, it has no code block, so the link stays clickable.
  * The link shows `Workflow run` in place of the URL. The missing message shows
- * its URL, because there the address is the news. Here the address tells the
- * owner nothing.
+ * the host and path of its URL, because there the address is the news. Here
+ * the address tells the owner nothing.
  *
  * Throws when the send fails. `runWatchdog` then writes no state, so a stretch
  * message from the same check comes again with the next check.
